@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fire Clock</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fire-glow {
+            0%, 100% {
+                text-shadow: 0 0 5px #ff8c00, 0 0 10px #ff7f50, 0 0 15px #ff6347;
+            }
+            50% {
+                text-shadow: 0 0 10px #ff4500, 0 0 20px #ff6347, 0 0 30px #ff8c00;
+            }
+        }
+        .fire-theme {
+            animation: fire-glow 2s ease-in-out infinite;
+        }
+        .duolingo-fire-icon {
+            font-size: 2rem;
+            line-height: 1;
+        }
+    </style>
+    <script type="module">
+        // Firebase imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, updateDoc, collection, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- Application State ---
+        let app = null;
+        let db = null;
+        let auth = null;
+        let userId = null;
+        let docRef = null;
+        let isAuthReady = false;
+
+        let timerConfig = {
+            pomo: 25 * 60,
+            shortBreak: 5 * 60,
+            longBreak: 15 * 60,
+        };
+
+        let timerState = {
+            mode: 'pomo', // 'pomo', 'shortBreak', 'longBreak'
+            isPaused: true,
+            secondsLeft: timerConfig.pomo,
+            sessionsToday: 0,
+            sessionsTotal: 0,
+            streak: 0,
+            lastSessionDate: null,
+            pomoCount: 0,
+        };
+
+        let timerInterval = null;
+        let currentPage = 'intro';
+
+        // --- DOM Elements ---
+        const timerDisplay = document.getElementById('timer-display');
+        const statusMessage = document.getElementById('status-message');
+        const startPauseButton = document.getElementById('start-pause-btn');
+        const resetButton = document.getElementById('reset-btn');
+        const dailySessionsDisplay = document.getElementById('daily-sessions');
+        const totalSessionsDisplay = document.getElementById('total-sessions');
+        const streakDisplay = document.getElementById('streak');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const taskInput = document.getElementById('task-input');
+        const breakdownBtn = document.getElementById('breakdown-btn');
+        const breakdownOutput = document.getElementById('breakdown-output');
+        const loadingMessage = document.getElementById('loading-message');
+        const streakIcon = document.getElementById('streak-icon');
+        const introPage = document.getElementById('intro-page');
+        const timerPage = document.getElementById('timer-page');
+        const streakPage = document.getElementById('streak-page');
+        const startTimerBtn = document.getElementById('start-timer-btn');
+        const navTimerBtn = document.getElementById('nav-timer-btn');
+        const navStatsBtn = document.getElementById('nav-stats-btn');
+        const backToTimerBtn = document.getElementById('back-to-timer-btn');
+
+
+        // --- Firebase Initialization and Data Handling ---
+        const initFirebase = async () => {
+            try {
+                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase configuration is missing or invalid.");
+                }
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('debug');
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        docRef = doc(db, 'artifacts', appId, 'users', userId, 'pomodoro_data', 'timer_data');
+                        console.log("Firebase initialized for user:", userId);
+                        userIdDisplay.textContent = `User ID: ${userId}`;
+                        isAuthReady = true;
+                        
+                        // Attach real-time listener
+                        onSnapshot(docRef, (doc) => {
+                            if (doc.exists()) {
+                                const data = doc.data();
+                                console.log("Data loaded from Firestore:", data);
+                                Object.assign(timerState, data);
+                                updateUI();
+                            } else {
+                                console.log("No data found for this user. Creating a new document.");
+                                setDoc(docRef, timerState);
+                            }
+                        }, (error) => {
+                            console.error("Error listening to document:", error);
+                        });
+                    } else {
+                        console.log("No user signed in. Signing in anonymously.");
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Failed to initialize Firebase:", error);
+            }
+        };
+        
+        const saveDataToFirestore = async () => {
+            if (!isAuthReady) {
+                console.warn("Authentication not ready. Cannot save data.");
+                return;
+            }
+            try {
+                await setDoc(docRef, timerState, { merge: true });
+                console.log("Data saved successfully!");
+            } catch (error) {
+                console.error("Error saving data to Firestore:", error);
+            }
+        };
+
+        // --- Timer Logic ---
+        const startTimer = () => {
+            if (timerInterval) return;
+            
+            timerState.isPaused = false;
+            startPauseButton.textContent = 'Pause';
+            startPauseButton.classList.remove('bg-green-500', 'hover:bg-green-600');
+            startPauseButton.classList.add('bg-red-500', 'hover:bg-red-600');
+
+            timerInterval = setInterval(() => {
+                timerState.secondsLeft--;
+                updateUI();
+                if (timerState.secondsLeft <= 0) {
+                    endTimer();
+                }
+            }, 1000);
+        };
+
+        const pauseTimer = () => {
+            if (!timerInterval) return;
+
+            timerState.isPaused = true;
+            clearInterval(timerInterval);
+            timerInterval = null;
+            startPauseButton.textContent = 'Start';
+            startPauseButton.classList.remove('bg-red-500', 'hover:bg-red-600');
+            startPauseButton.classList.add('bg-green-500', 'hover:bg-green-600');
+        };
+
+        const resetTimer = () => {
+            pauseTimer();
+            timerState.secondsLeft = timerConfig[timerState.mode];
+            updateUI();
+        };
+
+        const endTimer = () => {
+            pauseTimer();
+            playAudioNotification();
+
+            if (timerState.mode === 'pomo') {
+                updateStreak();
+                timerState.sessionsToday++;
+                timerState.sessionsTotal++;
+                timerState.pomoCount++;
+                saveDataToFirestore(); // Save on session completion
+
+                if (timerState.pomoCount % 4 === 0) {
+                    timerState.mode = 'longBreak';
+                    statusMessage.textContent = 'Long break! You earned it.';
+                } else {
+                    timerState.mode = 'shortBreak';
+                    statusMessage.textContent = 'Short break.';
+                }
+            } else {
+                timerState.mode = 'pomo';
+                statusMessage.textContent = 'Time to focus!';
+            }
+            timerState.secondsLeft = timerConfig[timerState.mode];
+            updateUI();
+        };
+
+        const updateStreak = () => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayStr = today.toISOString().split('T')[0];
+
+            if (timerState.lastSessionDate) {
+                const lastDate = new Date(timerState.lastSessionDate);
+                lastDate.setHours(0, 0, 0, 0);
+
+                const oneDay = 24 * 60 * 60 * 1000;
+                const diffDays = Math.round((today.getTime() - lastDate.getTime()) / oneDay);
+
+                if (diffDays === 1) {
+                    timerState.streak++;
+                } else if (diffDays > 1) {
+                    timerState.streak = 1;
+                }
+            } else {
+                timerState.streak = 1;
+            }
+            timerState.lastSessionDate = todayStr;
+        };
+
+        const playAudioNotification = () => {
+            try {
+                const audio = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+                audio.play();
+            } catch (error) {
+                console.error("Audio playback failed:", error);
+            }
+        };
+
+        // --- Gemini API Integration ---
+        const getTaskBreakdown = async () => {
+            const task = taskInput.value.trim();
+            if (!task) {
+                breakdownOutput.innerHTML = `<p class="text-red-400">Please enter a task to break down.</p>`;
+                return;
+            }
+
+            const prompt = `Break down the following task into a clear, concise, bulleted list of sub-tasks. Focus on actionable steps a person can take to complete the main task: "${task}"`;
+            const apiKey = ""; // Canvas will provide this
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            breakdownBtn.disabled = true;
+            loadingMessage.classList.remove('hidden');
+            breakdownOutput.innerHTML = '';
+
+            try {
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    tools: [{ "google_search": {} }],
+                };
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+                const text = candidate?.content?.parts?.[0]?.text;
+
+                if (text) {
+                    breakdownOutput.innerHTML = `<h3 class="font-bold text-slate-300 mb-2">Breakdown:</h3><div class="prose prose-sm prose-invert">${text.replace(/\n/g, '<br>')}</div>`;
+                    breakdownOutput.classList.remove('hidden');
+                } else {
+                    breakdownOutput.innerHTML = `<p class="text-red-400">Sorry, something went wrong. Please try again.</p>`;
+                    breakdownOutput.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error("API call failed:", error);
+                breakdownOutput.innerHTML = `<p class="text-red-400">An error occurred while fetching the breakdown. Please check your network connection.</p>`;
+                breakdownOutput.classList.remove('hidden');
+            } finally {
+                loadingMessage.classList.add('hidden');
+                breakdownBtn.disabled = false;
+            }
+        };
+
+        // --- Time Settings Logic ---
+        const setPomoTime = (minutes) => {
+            timerConfig.pomo = minutes * 60;
+            if (timerState.mode === 'pomo') {
+                timerState.secondsLeft = timerConfig.pomo;
+                updateUI();
+            }
+        };
+        const setShortBreakTime = (minutes) => {
+            timerConfig.shortBreak = minutes * 60;
+            if (timerState.mode === 'shortBreak') {
+                timerState.secondsLeft = timerConfig.shortBreak;
+                updateUI();
+            }
+        };
+        const setLongBreakTime = (minutes) => {
+            timerConfig.longBreak = minutes * 60;
+            if (timerState.mode === 'longBreak') {
+                timerState.secondsLeft = timerConfig.longBreak;
+                updateUI();
+            }
+        };
+
+
+        // --- UI Updates ---
+        const updateUI = () => {
+            const minutes = Math.floor(timerState.secondsLeft / 60);
+            const seconds = timerState.secondsLeft % 60;
+            const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Only update timer display if on the timer page
+            if (currentPage === 'timer') {
+                timerDisplay.textContent = formattedTime;
+                document.title = `${formattedTime} | Fire Clock`;
+            } else {
+                document.title = 'Fire Clock';
+            }
+
+            dailySessionsDisplay.textContent = timerState.sessionsToday;
+            totalSessionsDisplay.textContent = timerState.sessionsTotal;
+            streakDisplay.textContent = timerState.streak;
+            
+            // Set message based on mode
+            if (timerState.mode === 'pomo') {
+                statusMessage.textContent = 'Time to focus!';
+            } else if (timerState.mode === 'shortBreak') {
+                statusMessage.textContent = 'Short break.';
+            } else if (timerState.mode === 'longBreak') {
+                statusMessage.textContent = 'Long break.';
+            }
+
+            // Apply fire theme animation to streak if streak > 0
+            if (timerState.streak > 0) {
+                streakIcon.classList.add('fire-theme');
+            } else {
+                streakIcon.classList.remove('fire-theme');
+            }
+        };
+
+        const showPage = (pageName) => {
+            currentPage = pageName;
+            introPage.classList.add('hidden');
+            timerPage.classList.add('hidden');
+            streakPage.classList.add('hidden');
+
+            if (currentPage === 'intro') {
+                introPage.classList.remove('hidden');
+            } else if (currentPage === 'timer') {
+                timerPage.classList.remove('hidden');
+                updateUI(); // Ensure timer display is updated when navigating back
+            } else if (currentPage === 'streak') {
+                streakPage.classList.remove('hidden');
+                updateUI();
+            }
+        };
+
+        // --- Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            startPauseButton.addEventListener('click', () => {
+                if (timerState.isPaused) {
+                    startTimer();
+                } else {
+                    pauseTimer();
+                }
+            });
+            resetButton.addEventListener('click', resetTimer);
+            breakdownBtn.addEventListener('click', getTaskBreakdown);
+            startTimerBtn.addEventListener('click', () => showPage('timer'));
+            viewStatsBtn.addEventListener('click', () => showPage('streak'));
+            backToTimerBtn.addEventListener('click', () => showPage('timer'));
+
+            // Time setting buttons
+            document.querySelectorAll('.pomo-btn').forEach(btn => btn.addEventListener('click', (e) => setPomoTime(e.target.dataset.minutes)));
+            document.querySelectorAll('.short-break-btn').forEach(btn => btn.addEventListener('click', (e) => setShortBreakTime(e.target.dataset.minutes)));
+            document.querySelectorAll('.long-break-btn').forEach(btn => btn.addEventListener('click', (e) => setLongBreakTime(e.target.dataset.minutes)));
+            
+            initFirebase();
+            showPage('intro'); // Start on the intro page
+            updateUI();
+        });
+    </script>
+</head>
+
+<body class="bg-slate-900 text-white font-sans flex items-center justify-center min-h-screen p-4">
+    <main class="bg-slate-800 rounded-2xl shadow-xl p-8 max-w-sm w-full space-y-6">
+
+        <!-- Intro Page -->
+        <div id="intro-page">
+            <h1 class="text-4xl font-extrabold text-center text-slate-100 mb-4">Ignite Your Focus with Fire Clock</h1>
+            <p class="text-slate-400 text-center text-sm mb-6">
+                The Pomodoro Technique is a time management method that uses a timer to break down work into intervals, typically 25 minutes in length, separated by short breaks.
+            </p>
+            <div class="flex flex-col items-center space-y-4 text-slate-300 mb-6">
+                <p class="text-xl font-semibold">How it works:</p>
+                <ul class="list-disc list-inside space-y-2 text-left w-full max-w-xs mx-auto">
+                    <li><span class="font-bold text-red-400">Work</span> for 25 minutes.</li>
+                    <li><span class="font-bold text-blue-400">Break</span> for 5 minutes.</li>
+                    <li>After four sessions, take a <span class="font-bold text-green-400">longer break</span>.</li>
+                </ul>
+            </div>
+            <button id="start-timer-btn"
+                class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                Get Started
+            </button>
+        </div>
+
+        <!-- Timer App Page -->
+        <div id="timer-page" class="hidden">
+            <h1 class="text-3xl font-bold text-center text-slate-100 mb-6">Pomodoro Timer</h1>
+
+            <!-- Time Settings Section -->
+            <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
+                <h2 class="text-xl font-bold text-center text-slate-100">Set Time</h2>
+                
+                <div>
+                    <h3 class="text-lg font-medium text-slate-300">Pomodoro</h3>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <button data-minutes="25" class="pomo-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">25 min</button>
+                        <button data-minutes="30" class="pomo-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">30 min</button>
+                        <button data-minutes="45" class="pomo-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">45 min</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-medium text-slate-300">Short Break</h3>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <button data-minutes="5" class="short-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">5 min</button>
+                        <button data-minutes="10" class="short-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">10 min</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-medium text-slate-300">Long Break</h3>
+                    <div class="flex flex-wrap gap-2 mt-2">
+                        <button data-minutes="15" class="long-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">15 min</button>
+                        <button data-minutes="20" class="long-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">20 min</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timer Section -->
+            <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
+                <!-- Timer Display -->
+                <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-green-400 text-center select-none">
+                    25:00
+                </div>
+
+                <!-- Status Message -->
+                <p id="status-message" class="text-center text-xl text-slate-400 font-medium">Time to focus!</p>
+
+                <!-- Control Buttons -->
+                <div class="flex space-x-4 justify-center">
+                    <button id="start-pause-btn"
+                        class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Start
+                    </button>
+                    <button id="reset-btn"
+                        class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+            <button id="view-stats-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                View Stats
+            </button>
+
+            <!-- Gemini API Integration -->
+            <div class="space-y-4 mt-6 pt-6 border-t border-slate-700">
+                <h2 class="text-2xl font-bold text-center text-slate-100">✨ Task Breakdown</h2>
+                <p class="text-slate-400 text-center text-sm">Enter a task and get it broken down into a plan.</p>
+                <textarea id="task-input" rows="3"
+                    class="w-full p-3 rounded-lg bg-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="e.g., 'Write a blog post about web development'"></textarea>
+                <button id="breakdown-btn"
+                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                    Break Down Task ✨
+                </button>
+                <div id="loading-message" class="hidden text-center text-purple-400 font-semibold animate-pulse">
+                    Thinking...
+                </div>
+                <div id="breakdown-output" class="text-slate-200 mt-4 p-4 bg-slate-700 rounded-lg hidden">
+                    <!-- AI-generated content will go here -->
+                </div>
+            </div>
+
+            <div class="text-center text-xs text-slate-500 mt-4 break-words">
+                <span id="user-id-display">Authenticating...</span>
+            </div>
+        </div>
+
+        <!-- Streak Page -->
+        <div id="streak-page" class="hidden">
+            <h1 class="text-3xl font-bold text-center text-slate-100 mb-6">Your Stats</h1>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center mt-6 pt-6 border-t border-slate-700">
+                <div class="flex flex-col items-center">
+                    <span id="daily-sessions" class="text-4xl font-extrabold text-blue-400">0</span>
+                    <span class="text-slate-400 text-sm mt-1">Today's Sessions</span>
+                </div>
+                <div class="flex flex-col items-center">
+                    <div class="flex items-center space-x-2">
+                        <span id="streak" class="text-4xl font-extrabold text-orange-400">0</span>
+                        <span id="streak-icon" class="duolingo-fire-icon text-orange-400">🔥</span>
+                    </div>
+                    <span class="text-slate-400 text-sm mt-1">Streak</span>
+                </div>
+                <div class="flex flex-col items-center">
+                    <span id="total-sessions" class="text-4xl font-extrabold text-purple-400">0</span>
+                    <span class="text-slate-400 text-sm mt-1">Total Sessions</span>
+                </div>
+            </div>
+
+            <button id="back-to-timer-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                Back to Timer
+            </button>
+        </div>
+    </main>
+</body>
+
+</html>
