@@ -23,6 +23,30 @@
             font-size: 2rem;
             line-height: 1;
         }
+        .prose-custom {
+            font-family: inherit;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes pulse-fire {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .dynamic-fire {
+            animation: pulse-fire 2s ease-in-out infinite;
+            transform-origin: center;
+        }
     </style>
     <script type="module">
         // Firebase imports
@@ -52,39 +76,41 @@
         let timerState = {
             mode: 'pomo', // 'pomo', 'shortBreak', 'longBreak'
             isPaused: true,
-            secondsLeft: timerConfig.pomo,
+            secondsLeft: 0,
             sessionsToday: 0,
             sessionsTotal: 0,
+            pomoCount: 0,
             streak: 0,
             lastSessionDate: null,
-            pomoCount: 0,
         };
-
+        
         let timerInterval = null;
-        let currentPage = 'intro';
+        let currentPage = 'loading';
+        let achievements = [
+            { name: "Focused Starter", description: "Complete 1 Pomodoro session.", icon: "✨", conditionType: "sessions", conditionValue: 1 },
+            { name: "Pomodoro Apprentice", description: "Complete 10 Pomodoro sessions.", icon: "🌟", conditionType: "sessions", conditionValue: 10 },
+            { name: "Pomodoro Master", description: "Complete 25 Pomodoro sessions.", icon: "🏆", conditionType: "sessions", conditionValue: 25 },
+            { name: "Focused Veteran", description: "Complete 50 Pomodoro sessions.", icon: "🚀", conditionType: "sessions", conditionValue: 50 },
+            { name: "Streak Keeper", description: "Maintain a 3-day streak.", icon: "🔥", conditionType: "streak", conditionValue: 3 },
+            { name: "Streak Master", description: "Maintain a 7-day streak.", icon: "🥇", conditionType: "streak", conditionValue: 7 },
+        ];
+
 
         // --- DOM Elements ---
-        const timerDisplay = document.getElementById('timer-display');
-        const statusMessage = document.getElementById('status-message');
-        const startPauseButton = document.getElementById('start-pause-btn');
-        const resetButton = document.getElementById('reset-btn');
-        const dailySessionsDisplay = document.getElementById('daily-sessions');
-        const totalSessionsDisplay = document.getElementById('total-sessions');
-        const streakDisplay = document.getElementById('streak');
-        const userIdDisplay = document.getElementById('user-id-display');
-        const taskInput = document.getElementById('task-input');
-        const breakdownBtn = document.getElementById('breakdown-btn');
-        const breakdownOutput = document.getElementById('breakdown-output');
-        const loadingMessage = document.getElementById('loading-message');
-        const streakIcon = document.getElementById('streak-icon');
+        const startTimerBtn = document.getElementById('start-timer-btn');
+        const viewAchievementsBtn = document.getElementById('view-achievements-btn');
+        const backToTimerBtn = document.getElementById('back-to-timer-btn');
+        const takeBreakBtn = document.getElementById('take-break-btn');
+        const backFromBreakBtn = document.getElementById('back-from-break-btn');
+
+        const loadingPage = document.getElementById('loading-page');
         const introPage = document.getElementById('intro-page');
         const timerPage = document.getElementById('timer-page');
-        const streakPage = document.getElementById('streak-page');
-        const startTimerBtn = document.getElementById('start-timer-btn');
-        const navTimerBtn = document.getElementById('nav-timer-btn');
-        const navStatsBtn = document.getElementById('nav-stats-btn');
-        const backToTimerBtn = document.getElementById('back-to-timer-btn');
+        const achievementsPage = document.getElementById('achievements-page');
+        const breakPage = document.getElementById('break-page');
 
+
+        const userIdDisplay = document.getElementById('user-id-display');
 
         // --- Firebase Initialization and Data Handling ---
         const initFirebase = async () => {
@@ -102,7 +128,7 @@
                         userId = user.uid;
                         docRef = doc(db, 'artifacts', appId, 'users', userId, 'pomodoro_data', 'timer_data');
                         console.log("Firebase initialized for user:", userId);
-                        userIdDisplay.textContent = `User ID: ${userId}`;
+                        if (userIdDisplay) userIdDisplay.textContent = `User ID: ${userId}`;
                         isAuthReady = true;
                         
                         // Attach real-time listener
@@ -150,10 +176,19 @@
         const startTimer = () => {
             if (timerInterval) return;
             
+            const startPauseButton = document.getElementById('start-pause-btn');
+            const resetButton = document.getElementById('reset-btn');
+            const progressContainer = document.getElementById('progress-container');
+            if (!startPauseButton || !resetButton || !progressContainer) return;
+            
             timerState.isPaused = false;
             startPauseButton.textContent = 'Pause';
             startPauseButton.classList.remove('bg-green-500', 'hover:bg-green-600');
             startPauseButton.classList.add('bg-red-500', 'hover:bg-red-600');
+            
+            // Hide buttons and show progress bar
+            resetButton.classList.add('hidden');
+            progressContainer.classList.remove('hidden');
 
             timerInterval = setInterval(() => {
                 timerState.secondsLeft--;
@@ -166,6 +201,11 @@
 
         const pauseTimer = () => {
             if (!timerInterval) return;
+            
+            const startPauseButton = document.getElementById('start-pause-btn');
+            const resetButton = document.getElementById('reset-btn');
+            const progressContainer = document.getElementById('progress-container');
+            if (!startPauseButton || !resetButton || !progressContainer) return;
 
             timerState.isPaused = true;
             clearInterval(timerInterval);
@@ -173,17 +213,23 @@
             startPauseButton.textContent = 'Start';
             startPauseButton.classList.remove('bg-red-500', 'hover:bg-red-600');
             startPauseButton.classList.add('bg-green-500', 'hover:bg-green-600');
+
+            // Show buttons and hide progress bar
+            resetButton.classList.remove('hidden');
+            progressContainer.classList.add('hidden');
         };
 
         const resetTimer = () => {
+            const pomoTimeInput = document.getElementById('pomo-time-input');
             pauseTimer();
             timerState.secondsLeft = timerConfig[timerState.mode];
+            if(pomoTimeInput) pomoTimeInput.value = timerConfig.pomo / 60;
             updateUI();
         };
 
         const endTimer = () => {
+            const statusMessage = document.getElementById('status-message');
             pauseTimer();
-            playAudioNotification();
 
             if (timerState.mode === 'pomo') {
                 updateStreak();
@@ -194,14 +240,15 @@
 
                 if (timerState.pomoCount % 4 === 0) {
                     timerState.mode = 'longBreak';
-                    statusMessage.textContent = 'Long break! You earned it.';
+                    if (statusMessage) statusMessage.textContent = 'Long break! You earned it.';
                 } else {
                     timerState.mode = 'shortBreak';
-                    statusMessage.textContent = 'Short break.';
+                    if (statusMessage) statusMessage.textContent = 'Short break.';
                 }
             } else {
                 timerState.mode = 'pomo';
-                statusMessage.textContent = 'Time to focus!';
+                if (statusMessage) statusMessage.textContent = 'Time to focus!';
+                showPage('timer'); // Automatically go back to the timer page after a break ends
             }
             timerState.secondsLeft = timerConfig[timerState.mode];
             updateUI();
@@ -230,30 +277,92 @@
             timerState.lastSessionDate = todayStr;
         };
 
-        const playAudioNotification = () => {
-            try {
-                const audio = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
-                audio.play();
-            } catch (error) {
-                console.error("Audio playback failed:", error);
+        // --- Custom Time Setter Logic ---
+        const setCustomTimes = () => {
+            const pomoTimeInput = document.getElementById('pomo-time-input');
+            const startPauseButton = document.getElementById('start-pause-btn');
+            const statusMessage = document.getElementById('status-message');
+            if(!pomoTimeInput || !startPauseButton || !statusMessage) return;
+
+            pauseTimer();
+            const pomoMins = parseInt(pomoTimeInput.value, 10);
+            if (isNaN(pomoMins) || pomoMins <= 0) {
+                 alert('Please enter a valid positive number for Pomodoro time.');
+                 return;
             }
+
+            timerConfig.pomo = pomoMins * 60;
+            
+            timerState.mode = 'pomo';
+            timerState.secondsLeft = timerConfig.pomo;
+            updateUI();
+            startPauseButton.disabled = false;
+            statusMessage.textContent = 'Time set! Click Start to begin.';
         };
 
-        // --- Gemini API Integration ---
-        const getTaskBreakdown = async () => {
-            const task = taskInput.value.trim();
-            if (!task) {
-                breakdownOutput.innerHTML = `<p class="text-red-400">Please enter a task to break down.</p>`;
-                return;
+        // --- Manual Break Logic ---
+        const startShortBreak = () => {
+            const breakStatusMessage = document.getElementById('break-status-message');
+            if(!breakStatusMessage) return;
+            pauseTimer();
+            timerState.mode = 'shortBreak';
+            timerState.secondsLeft = timerConfig.shortBreak;
+            breakStatusMessage.textContent = 'Short break.';
+            startTimer();
+        };
+
+        const startLongBreak = () => {
+            const breakStatusMessage = document.getElementById('break-status-message');
+            if(!breakStatusMessage) return;
+            pauseTimer();
+            timerState.mode = 'longBreak';
+            timerState.secondsLeft = timerConfig.longBreak;
+            breakStatusMessage.textContent = 'Long break! You earned it.';
+            startTimer();
+        };
+
+        // --- Chatbot Logic ---
+        const addMessageToChat = (text, sender) => {
+            const chatWindow = document.getElementById('chat-window');
+            if (!chatWindow) return;
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('flex', 'flex-col', 'gap-1', 'mb-2');
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.classList.add('px-4', 'py-2', 'rounded-xl', 'text-sm');
+
+            if (sender === 'user') {
+                messageDiv.classList.add('items-end');
+                contentDiv.classList.add('bg-purple-600', 'text-white', 'rounded-br-none');
+            } else {
+                messageDiv.classList.add('items-start');
+                contentDiv.classList.add('bg-slate-700', 'text-slate-200', 'rounded-bl-none', 'prose-custom');
             }
+            
+            contentDiv.innerHTML = text;
+            messageDiv.appendChild(contentDiv);
+            chatWindow.appendChild(messageDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        };
 
-            const prompt = `Break down the following task into a clear, concise, bulleted list of sub-tasks. Focus on actionable steps a person can take to complete the main task: "${task}"`;
-            const apiKey = ""; // Canvas will provide this
+        const sendMessage = async () => {
+            const chatInput = document.getElementById('chat-input');
+            const chatSendBtn = document.getElementById('chat-send-btn');
+            const chatLoading = document.getElementById('chat-loading');
+            if (!chatInput || !chatSendBtn || !chatLoading) return;
+
+            const userMessage = chatInput.value.trim();
+            if (!userMessage) return;
+
+            addMessageToChat(userMessage, 'user');
+            chatInput.value = '';
+            chatInput.disabled = true;
+            chatSendBtn.disabled = true;
+            chatLoading.classList.remove('hidden');
+
+            const prompt = userMessage;
+            const apiKey = "";
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-
-            breakdownBtn.disabled = true;
-            loadingMessage.classList.remove('hidden');
-            breakdownOutput.innerHTML = '';
 
             try {
                 const payload = {
@@ -272,130 +381,270 @@
                 const text = candidate?.content?.parts?.[0]?.text;
 
                 if (text) {
-                    breakdownOutput.innerHTML = `<h3 class="font-bold text-slate-300 mb-2">Breakdown:</h3><div class="prose prose-sm prose-invert">${text.replace(/\n/g, '<br>')}</div>`;
-                    breakdownOutput.classList.remove('hidden');
+                    addMessageToChat(text, 'bot');
                 } else {
-                    breakdownOutput.innerHTML = `<p class="text-red-400">Sorry, something went wrong. Please try again.</p>`;
-                    breakdownOutput.classList.remove('hidden');
+                    addMessageToChat("I'm sorry, I couldn't get a response. Please try again.", 'bot');
                 }
+
             } catch (error) {
-                console.error("API call failed:", error);
-                breakdownOutput.innerHTML = `<p class="text-red-400">An error occurred while fetching the breakdown. Please check your network connection.</p>`;
-                breakdownOutput.classList.remove('hidden');
+                console.error("Chatbot API call failed:", error);
+                addMessageToChat("An error occurred. Please check your network connection.", 'bot');
             } finally {
-                loadingMessage.classList.add('hidden');
-                breakdownBtn.disabled = false;
+                chatInput.disabled = false;
+                chatSendBtn.disabled = false;
+                chatLoading.classList.add('hidden');
             }
         };
 
-        // --- Time Settings Logic ---
-        const setPomoTime = (minutes) => {
-            timerConfig.pomo = minutes * 60;
-            if (timerState.mode === 'pomo') {
-                timerState.secondsLeft = timerConfig.pomo;
-                updateUI();
-            }
-        };
-        const setShortBreakTime = (minutes) => {
-            timerConfig.shortBreak = minutes * 60;
-            if (timerState.mode === 'shortBreak') {
-                timerState.secondsLeft = timerConfig.shortBreak;
-                updateUI();
-            }
-        };
-        const setLongBreakTime = (minutes) => {
-            timerConfig.longBreak = minutes * 60;
-            if (timerState.mode === 'longBreak') {
-                timerState.secondsLeft = timerConfig.longBreak;
-                updateUI();
-            }
-        };
+        const renderAchievements = () => {
+            const achievementsContainer = document.getElementById('achievements-container');
+            const streakDisplay = document.getElementById('streak');
+            const totalSessionsDisplay = document.getElementById('total-sessions');
+            const streakIcon = document.getElementById('streak-icon');
+            if (!achievementsContainer || !streakDisplay || !totalSessionsDisplay || !streakIcon) return;
 
+            achievementsContainer.innerHTML = '';
+            achievements.forEach(achievement => {
+                const currentProgress = achievement.conditionType === 'sessions' ? timerState.sessionsTotal : timerState.streak;
+                const isUnlocked = currentProgress >= achievement.conditionValue;
+
+                const progressPercentage = (currentProgress / achievement.conditionValue) * 100;
+                const clampedProgress = Math.min(progressPercentage, 100);
+
+                const badgeDiv = document.createElement('div');
+                badgeDiv.classList.add('flex', 'items-center', 'space-x-4', 'p-4', 'rounded-xl', 'shadow-md', 'transition-colors', 'duration-200');
+
+                if (isUnlocked) {
+                    badgeDiv.classList.add('bg-slate-700', 'text-green-400');
+                } else {
+                    badgeDiv.classList.add('bg-slate-800', 'text-slate-500', 'opacity-50');
+                }
+
+                const iconSpan = document.createElement('span');
+                iconSpan.textContent = isUnlocked ? achievement.icon : '🔒';
+                iconSpan.classList.add('text-3xl');
+
+                const textDiv = document.createElement('div');
+                textDiv.classList.add('flex-grow');
+                const nameH3 = document.createElement('h3');
+                nameH3.textContent = achievement.name;
+                nameH3.classList.add('font-bold');
+
+                const descP = document.createElement('p');
+                descP.textContent = achievement.description;
+                descP.classList.add('text-sm');
+
+                const progressBarContainer = document.createElement('div');
+                progressBarContainer.classList.add('w-full', 'bg-slate-600', 'rounded-full', 'h-2', 'mt-2');
+                const progressBar = document.createElement('div');
+                progressBar.classList.add('bg-green-400', 'h-2', 'rounded-full', 'transition-all', 'duration-500');
+                progressBar.style.width = `${clampedProgress}%`;
+                
+                progressBarContainer.appendChild(progressBar);
+
+
+                const progressTextP = document.createElement('p');
+                progressTextP.classList.add('text-sm', 'mt-1');
+                progressTextP.textContent = isUnlocked ? "Unlocked!" : `Progress: ${currentProgress}/${achievement.conditionValue}`;
+
+
+                textDiv.appendChild(nameH3);
+                textDiv.appendChild(descP);
+                if (!isUnlocked) {
+                    textDiv.appendChild(progressBarContainer);
+                    textDiv.appendChild(progressTextP);
+                }
+
+
+                badgeDiv.appendChild(iconSpan);
+                badgeDiv.appendChild(textDiv);
+                achievementsContainer.appendChild(badgeDiv);
+            });
+            totalSessionsDisplay.textContent = timerState.sessionsTotal;
+            streakDisplay.textContent = timerState.streak;
+            if (timerState.streak > 0) {
+                 streakIcon.classList.add('fire-theme');
+            } else {
+                 streakIcon.classList.remove('fire-theme');
+            }
+        };
 
         // --- UI Updates ---
         const updateUI = () => {
+            const timerDisplay = document.getElementById('timer-display');
+            const breakTimerDisplay = document.getElementById('break-timer-display');
+            const statusMessage = document.getElementById('status-message');
+            const breakStatusMessage = document.getElementById('break-status-message');
+            const progressBar = document.getElementById('progress-bar');
+            
             const minutes = Math.floor(timerState.secondsLeft / 60);
             const seconds = timerState.secondsLeft % 60;
             const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             
-            // Only update timer display if on the timer page
             if (currentPage === 'timer') {
-                timerDisplay.textContent = formattedTime;
+                if (timerDisplay) timerDisplay.textContent = formattedTime;
+                if (statusMessage) statusMessage.textContent = timerState.mode === 'pomo' ? 'Time to focus!' : '';
                 document.title = `${formattedTime} | Fire Clock`;
+                // Update progress bar
+                if (progressBar) {
+                    const totalTime = timerConfig[timerState.mode];
+                    const progress = ((totalTime - timerState.secondsLeft) / totalTime) * 100;
+                    progressBar.style.width = `${progress}%`;
+                }
+            } else if (currentPage === 'break') {
+                if (breakTimerDisplay) breakTimerDisplay.textContent = formattedTime;
+                if (breakStatusMessage) breakStatusMessage.textContent = timerState.mode === 'shortBreak' ? 'Short break!' : 'Long break! You earned it.';
+                document.title = `${formattedTime} | Break`;
             } else {
-                document.title = 'Fire Clock';
-            }
-
-            dailySessionsDisplay.textContent = timerState.sessionsToday;
-            totalSessionsDisplay.textContent = timerState.sessionsTotal;
-            streakDisplay.textContent = timerState.streak;
-            
-            // Set message based on mode
-            if (timerState.mode === 'pomo') {
-                statusMessage.textContent = 'Time to focus!';
-            } else if (timerState.mode === 'shortBreak') {
-                statusMessage.textContent = 'Short break.';
-            } else if (timerState.mode === 'longBreak') {
-                statusMessage.textContent = 'Long break.';
-            }
-
-            // Apply fire theme animation to streak if streak > 0
-            if (timerState.streak > 0) {
-                streakIcon.classList.add('fire-theme');
-            } else {
-                streakIcon.classList.remove('fire-theme');
+                 document.title = 'Fire Clock';
             }
         };
 
         const showPage = (pageName) => {
             currentPage = pageName;
-            introPage.classList.add('hidden');
-            timerPage.classList.add('hidden');
-            streakPage.classList.add('hidden');
+            
+            const mainContent = document.querySelector('main');
+            const loadingPage = document.getElementById('loading-page');
+            const introPage = document.getElementById('intro-page');
+            const timerPage = document.getElementById('timer-page');
+            const achievementsPage = document.getElementById('achievements-page');
+            const breakPage = document.getElementById('break-page');
 
-            if (currentPage === 'intro') {
-                introPage.classList.remove('hidden');
+
+            if (pageName !== 'loading' && mainContent) {
+                mainContent.classList.remove('hidden');
+            }
+            
+            if (loadingPage) loadingPage.classList.add('hidden');
+            if (introPage) introPage.classList.add('hidden');
+            if (timerPage) timerPage.classList.add('hidden');
+            if (achievementsPage) achievementsPage.classList.add('hidden');
+            if (breakPage) breakPage.classList.add('hidden');
+
+            pauseTimer();
+
+            if (currentPage === 'loading') {
+                if(loadingPage) loadingPage.classList.remove('hidden');
+            } else if (currentPage === 'intro') {
+                if(introPage) introPage.classList.remove('hidden');
             } else if (currentPage === 'timer') {
-                timerPage.classList.remove('hidden');
-                updateUI(); // Ensure timer display is updated when navigating back
-            } else if (currentPage === 'streak') {
-                streakPage.classList.remove('hidden');
+                if(timerPage) timerPage.classList.remove('hidden');
+                const pomoTimeInput = document.getElementById('pomo-time-input');
+                if(pomoTimeInput) pomoTimeInput.value = timerConfig.pomo / 60;
                 updateUI();
+            } else if (currentPage === 'achievements') {
+                if(achievementsPage) achievementsPage.classList.remove('hidden');
+                renderAchievements();
+                updateUI();
+            } else if (currentPage === 'break') {
+                if(breakPage) breakPage.classList.remove('hidden');
             }
         };
 
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', () => {
-            startPauseButton.addEventListener('click', () => {
-                if (timerState.isPaused) {
+            const startPauseButton = document.getElementById('start-pause-btn');
+            const resetButton = document.getElementById('reset-btn');
+            const setTimesBtn = document.getElementById('set-times-btn');
+            const chatSendBtn = document.getElementById('chat-send-btn');
+            const shortBreakBtn = document.getElementById('short-break-btn');
+            const longBreakBtn = document.getElementById('long-break-btn');
+            const takeBreakBtn = document.getElementById('take-break-btn');
+            const backFromBreakBtn = document.getElementById('back-from-break-btn');
+            const chatInput = document.getElementById('chat-input');
+            const startTimerBtn = document.getElementById('start-timer-btn');
+            const viewAchievementsBtn = document.getElementById('view-achievements-btn');
+            const backToTimerBtn = document.getElementById('back-to-timer-btn');
+            
+            if (startPauseButton) {
+                startPauseButton.addEventListener('click', () => {
+                    if (timerState.isPaused) {
+                        startTimer();
+                    } else {
+                        pauseTimer();
+                    }
+                });
+            }
+            if (resetButton) resetButton.addEventListener('click', resetTimer);
+            if (setTimesBtn) setTimesBtn.addEventListener('click', setCustomTimes);
+            if (chatSendBtn) chatSendBtn.addEventListener('click', sendMessage);
+            if (shortBreakBtn) {
+                 shortBreakBtn.addEventListener('click', () => {
+                    timerState.mode = 'shortBreak';
+                    timerState.secondsLeft = timerConfig.shortBreak;
                     startTimer();
-                } else {
-                    pauseTimer();
-                }
-            });
-            resetButton.addEventListener('click', resetTimer);
-            breakdownBtn.addEventListener('click', getTaskBreakdown);
-            startTimerBtn.addEventListener('click', () => showPage('timer'));
-            viewStatsBtn.addEventListener('click', () => showPage('streak'));
-            backToTimerBtn.addEventListener('click', () => showPage('timer'));
+                });
+            }
+            if (longBreakBtn) {
+                longBreakBtn.addEventListener('click', () => {
+                    timerState.mode = 'longBreak';
+                    timerState.secondsLeft = timerConfig.longBreak;
+                    startTimer();
+                });
+            }
+            if (takeBreakBtn) takeBreakBtn.addEventListener('click', () => showPage('break'));
+            if (backFromBreakBtn) backFromBreakBtn.addEventListener('click', () => showPage('timer'));
+            if (chatInput) {
+                chatInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        sendMessage();
+                    }
+                });
+            }
 
-            // Time setting buttons
-            document.querySelectorAll('.pomo-btn').forEach(btn => btn.addEventListener('click', (e) => setPomoTime(e.target.dataset.minutes)));
-            document.querySelectorAll('.short-break-btn').forEach(btn => btn.addEventListener('click', (e) => setShortBreakTime(e.target.dataset.minutes)));
-            document.querySelectorAll('.long-break-btn').forEach(btn => btn.addEventListener('click', (e) => setLongBreakTime(e.target.dataset.minutes)));
+            if (startTimerBtn) startTimerBtn.addEventListener('click', () => showPage('timer'));
+            if (viewAchievementsBtn) viewAchievementsBtn.addEventListener('click', () => showPage('achievements'));
+            if (backToTimerBtn) backToTimerBtn.addEventListener('click', () => showPage('timer'));
             
             initFirebase();
-            showPage('intro'); // Start on the intro page
+            showPage('loading');
+            setTimeout(() => {
+                showPage('intro');
+            }, 1000);
             updateUI();
         });
     </script>
 </head>
 
 <body class="bg-slate-900 text-white font-sans flex items-center justify-center min-h-screen p-4">
-    <main class="bg-slate-800 rounded-2xl shadow-xl p-8 max-w-sm w-full space-y-6">
-
+    <div id="loading-page" class="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center text-white z-50">
+        <div class="spinner"></div>
+        <p class="mt-4 text-xl">Loading...</p>
+    </div>
+    
+    <main class="bg-slate-800 rounded-2xl shadow-xl p-8 max-w-sm w-full space-y-6 hidden">
         <!-- Intro Page -->
         <div id="intro-page">
+            <div class="flex flex-col items-center justify-center mb-6">
+                <!-- Custom Dynamic Wolf Logo -->
+                <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <style>
+                        @keyframes wolf-pulse {
+                            0% { transform: scale(1); }
+                            50% { transform: scale(1.05); }
+                            100% { transform: scale(1); }
+                        }
+                        .wolf-logo {
+                            animation: wolf-pulse 2s ease-in-out infinite;
+                            transform-origin: center;
+                        }
+                    </style>
+                    <g class="wolf-logo">
+                        <path d="M50 10 C 20 10 10 30 10 50 C 10 70 20 90 50 90 C 80 90 90 70 90 50 C 90 30 80 10 50 10 Z" fill="#2D3748" stroke="#CBD5E0" stroke-width="2"/>
+                        <path d="M50 40 L 35 60 L 45 65 L 50 55 L 55 65 L 65 60 L 50 40 Z" fill="#A0AEC0"/>
+                        <circle cx="40" cy="45" r="5" fill="#CBD5E0"/>
+                        <circle cx="60" cy="45" r="5" fill="#CBD5E0"/>
+                        <path d="M50 55 L 45 70 L 55 70 Z" fill="#E2E8F0"/>
+                        <path d="M40 70 L 45 80 L 50 70 Z" fill="#E2E8F0"/>
+                        <path d="M60 70 L 55 80 L 50 70 Z" fill="#E2E8F0"/>
+                        <path d="M42 55 L 35 65 L 30 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M58 55 L 65 65 L 70 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M50 55 L 50 65 L 50 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M50 55 L 45 65 L 40 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M50 55 L 55 65 L 60 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
+                    </g>
+                </svg>
+            </div>
             <h1 class="text-4xl font-extrabold text-center text-slate-100 mb-4">Ignite Your Focus with Fire Clock</h1>
             <p class="text-slate-400 text-center text-sm mb-6">
                 The Pomodoro Technique is a time management method that uses a timer to break down work into intervals, typically 25 minutes in length, separated by short breaks.
@@ -410,58 +659,26 @@
             </div>
             <button id="start-timer-btn"
                 class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                Get Started
+                Begin
             </button>
         </div>
 
         <!-- Timer App Page -->
         <div id="timer-page" class="hidden">
-            <h1 class="text-3xl font-bold text-center text-slate-100 mb-6">Pomodoro Timer</h1>
+            <h1 class="text-3xl font-bold text-center text-orange-400 mb-6">🔥 Fire Timer 🔥</h1>
 
-            <!-- Time Settings Section -->
+            <!-- Main Timer and Controls Box -->
             <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
-                <h2 class="text-xl font-bold text-center text-slate-100">Set Time</h2>
+                <div class="text-center">
+                    <p id="status-message" class="text-xl text-slate-400 font-medium">Set your times to begin!</p>
+                    <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-red-400 select-none mt-2">
+                        00:00
+                    </div>
+                </div>
                 
-                <div>
-                    <h3 class="text-lg font-medium text-slate-300">Pomodoro</h3>
-                    <div class="flex flex-wrap gap-2 mt-2">
-                        <button data-minutes="25" class="pomo-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">25 min</button>
-                        <button data-minutes="30" class="pomo-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">30 min</button>
-                        <button data-minutes="45" class="pomo-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">45 min</button>
-                    </div>
-                </div>
-
-                <div>
-                    <h3 class="text-lg font-medium text-slate-300">Short Break</h3>
-                    <div class="flex flex-wrap gap-2 mt-2">
-                        <button data-minutes="5" class="short-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">5 min</button>
-                        <button data-minutes="10" class="short-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">10 min</button>
-                    </div>
-                </div>
-
-                <div>
-                    <h3 class="text-lg font-medium text-slate-300">Long Break</h3>
-                    <div class="flex flex-wrap gap-2 mt-2">
-                        <button data-minutes="15" class="long-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">15 min</button>
-                        <button data-minutes="20" class="long-break-btn bg-slate-600 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-full transition-colors duration-200">20 min</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Timer Section -->
-            <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
-                <!-- Timer Display -->
-                <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-green-400 text-center select-none">
-                    25:00
-                </div>
-
-                <!-- Status Message -->
-                <p id="status-message" class="text-center text-xl text-slate-400 font-medium">Time to focus!</p>
-
-                <!-- Control Buttons -->
-                <div class="flex space-x-4 justify-center">
+                <div id="controls" class="flex space-x-4 justify-center">
                     <button id="start-pause-btn"
-                        class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105" disabled>
                         Start
                     </button>
                     <button id="reset-btn"
@@ -469,59 +686,129 @@
                         Reset
                     </button>
                 </div>
+
+                <div id="progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
+                    <div id="progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
+                </div>
             </div>
 
-            <button id="view-stats-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                View Stats
+            <!-- Custom Time Setter Box -->
+            <div class="bg-slate-700 rounded-2xl p-6 space-y-4 mt-6">
+                <h2 class="text-xl font-bold text-center text-slate-100">Set Custom Pomodoro Time</h2>
+                
+                <div class="flex items-center space-x-2">
+                    <label for="pomo-time-input" class="text-slate-300 w-1/2">Pomodoro (min):</label>
+                    <input id="pomo-time-input" type="number" value="25" min="1"
+                           class="w-1/2 p-2 rounded-lg bg-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                </div>
+                
+                <button id="set-times-btn"
+                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                    Set Time
+                </button>
+            </div>
+
+            <button id="take-break-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                Take a Break
             </button>
 
-            <!-- Gemini API Integration -->
+
+            <button id="view-achievements-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                View Achievements
+            </button>
+
+            <!-- Chatbot Section -->
             <div class="space-y-4 mt-6 pt-6 border-t border-slate-700">
-                <h2 class="text-2xl font-bold text-center text-slate-100">✨ Task Breakdown</h2>
-                <p class="text-slate-400 text-center text-sm">Enter a task and get it broken down into a plan.</p>
-                <textarea id="task-input" rows="3"
-                    class="w-full p-3 rounded-lg bg-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="e.g., 'Write a blog post about web development'"></textarea>
-                <button id="breakdown-btn"
-                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    Break Down Task ✨
-                </button>
-                <div id="loading-message" class="hidden text-center text-purple-400 font-semibold animate-pulse">
-                    Thinking...
+                <h2 class="text-2xl font-bold text-center text-slate-100">✨ J U N I O R</h2>
+                <div id="chat-window" class="h-64 overflow-y-auto p-4 bg-slate-700 rounded-xl space-y-2">
+                    <div class="flex flex-col items-start gap-1 mb-2">
+                        <div class="bg-slate-700 text-slate-200 px-4 py-2 rounded-xl rounded-bl-none text-sm prose-custom">
+                            Hi there! How can I help you stay focused today?
+                        </div>
+                    </div>
                 </div>
-                <div id="breakdown-output" class="text-slate-200 mt-4 p-4 bg-slate-700 rounded-lg hidden">
-                    <!-- AI-generated content will go here -->
+                <div class="flex space-x-2">
+                    <input id="chat-input" type="text" placeholder="Type your message..."
+                           class="flex-grow p-3 rounded-full bg-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <button id="chat-send-btn"
+                        class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Send
+                    </button>
                 </div>
+                <p id="chat-loading" class="text-center text-purple-400 font-semibold animate-pulse hidden">Typing...</p>
             </div>
+
 
             <div class="text-center text-xs text-slate-500 mt-4 break-words">
                 <span id="user-id-display">Authenticating...</span>
             </div>
         </div>
 
-        <!-- Streak Page -->
-        <div id="streak-page" class="hidden">
-            <h1 class="text-3xl font-bold text-center text-slate-100 mb-6">Your Stats</h1>
+        <!-- New Break Page -->
+        <div id="break-page" class="hidden">
+            <h1 class="text-3xl font-bold text-center text-slate-100 mb-6">Take a Break</h1>
+            <p class="text-slate-400 text-center text-sm mb-6">
+                Choose the type of break you'd like to take.
+            </p>
+            <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
+                <!-- Timer Display -->
+                <div id="break-timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-blue-400 text-center select-none">
+                    00:00
+                </div>
+
+                <!-- Status Message -->
+                <p id="break-status-message" class="text-center text-xl text-slate-400 font-medium">Choose a break to begin!</p>
+            </div>
             
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center mt-6 pt-6 border-t border-slate-700">
-                <div class="flex flex-col items-center">
-                    <span id="daily-sessions" class="text-4xl font-extrabold text-blue-400">0</span>
-                    <span class="text-slate-400 text-sm mt-1">Today's Sessions</span>
-                </div>
-                <div class="flex flex-col items-center">
-                    <div class="flex items-center space-x-2">
-                        <span id="streak" class="text-4xl font-extrabold text-orange-400">0</span>
-                        <span id="streak-icon" class="duolingo-fire-icon text-orange-400">🔥</span>
+            <div class="flex space-x-4 justify-center mt-6">
+                <button id="short-break-btn"
+                    class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                    Short Break
+                </button>
+                <button id="long-break-btn"
+                    class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                    Long Break
+                </button>
+            </div>
+            
+            <button id="back-from-break-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                Back to Timer
+            </button>
+        </div>
+
+
+        <!-- Achievements Page -->
+        <div id="achievements-page" class="hidden">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-bold text-slate-100">Your Progress</h1>
+                <p class="text-slate-400">Unlock achievements by staying focused.</p>
+            </div>
+            
+            <div id="achievements-container" class="space-y-4 max-h-[400px] overflow-y-auto pr-2">
+            </div>
+
+            <div class="mt-6 pt-6 border-t border-slate-700">
+                <h2 class="text-xl font-semibold text-center text-slate-300 mb-4">Statistics</h2>
+                <div class="grid grid-cols-2 gap-4 text-center">
+                    
+                    <div class="bg-slate-800 p-4 rounded-xl">
+                        <div id="streak-stat" class="flex items-center justify-center space-x-2 text-slate-500">
+                            <span id="streak" class="text-5xl font-extrabold">0</span>
+                            <span id="streak-icon" class="duolingo-fire-icon text-5xl">🔥</span>
+                        </div>
+                        <span class="text-slate-400 text-sm mt-1">Day Streak</span>
                     </div>
-                    <span class="text-slate-400 text-sm mt-1">Streak</span>
-                </div>
-                <div class="flex flex-col items-center">
-                    <span id="total-sessions" class="text-4xl font-extrabold text-purple-400">0</span>
-                    <span class="text-slate-400 text-sm mt-1">Total Sessions</span>
+
+                    <div class="bg-slate-800 p-4 rounded-xl">
+                        <div class="text-purple-400">
+                            <span id="total-sessions" class="text-5xl font-extrabold">0</span>
+                        </div>
+                        <span class="text-slate-400 text-sm mt-1">Total Sessions</span>
+                    </div>
                 </div>
             </div>
 
-            <button id="back-to-timer-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+            <button id="back-to-timer-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
                 Back to Timer
             </button>
         </div>
