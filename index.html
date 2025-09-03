@@ -8,6 +8,7 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Michroma&display=swap');
         @keyframes fire-glow {
             0%, 100% {
                 text-shadow: 0 0 5px #ff8c00, 0 0 10px #ff7f50, 0 0 15px #ff6347;
@@ -176,19 +177,32 @@
         const startTimer = () => {
             if (timerInterval) return;
             
-            const startPauseButton = document.getElementById('start-pause-btn');
-            const resetButton = document.getElementById('reset-btn');
-            const progressContainer = document.getElementById('progress-container');
-            if (!startPauseButton || !resetButton || !progressContainer) return;
-            
             timerState.isPaused = false;
-            startPauseButton.textContent = 'Pause';
-            startPauseButton.classList.remove('bg-green-500', 'hover:bg-green-600');
-            startPauseButton.classList.add('bg-red-500', 'hover:bg-red-600');
             
-            // Hide buttons and show progress bar
-            resetButton.classList.add('hidden');
-            progressContainer.classList.remove('hidden');
+            // Handle timer page controls
+            if (currentPage === 'timer') {
+                const startPauseButton = document.getElementById('start-pause-btn');
+                const resetButton = document.getElementById('reset-btn');
+                const controlsDiv = document.getElementById('controls');
+                const runningControlsDiv = document.getElementById('running-controls');
+                const progressContainer = document.getElementById('progress-container');
+                
+                if (controlsDiv) controlsDiv.classList.add('hidden');
+                if (runningControlsDiv) runningControlsDiv.classList.remove('hidden');
+                if (progressContainer) progressContainer.classList.remove('hidden');
+            }
+            
+            // Handle break page controls
+            if (currentPage === 'break') {
+                const breakControls = document.getElementById('break-controls');
+                const breakRunningControls = document.getElementById('break-running-controls');
+                const breakProgressContainer = document.getElementById('break-progress-container');
+                
+                if (breakControls) breakControls.classList.add('hidden');
+                if (breakRunningControls) breakRunningControls.classList.remove('hidden');
+                if (breakProgressContainer) breakProgressContainer.classList.remove('hidden');
+            }
+
 
             timerInterval = setInterval(() => {
                 timerState.secondsLeft--;
@@ -202,21 +216,31 @@
         const pauseTimer = () => {
             if (!timerInterval) return;
             
-            const startPauseButton = document.getElementById('start-pause-btn');
-            const resetButton = document.getElementById('reset-btn');
-            const progressContainer = document.getElementById('progress-container');
-            if (!startPauseButton || !resetButton || !progressContainer) return;
-
             timerState.isPaused = true;
             clearInterval(timerInterval);
             timerInterval = null;
-            startPauseButton.textContent = 'Start';
-            startPauseButton.classList.remove('bg-red-500', 'hover:bg-red-600');
-            startPauseButton.classList.add('bg-green-500', 'hover:bg-green-600');
-
-            // Show buttons and hide progress bar
-            resetButton.classList.remove('hidden');
-            progressContainer.classList.add('hidden');
+            
+            // Handle timer page controls
+            if (currentPage === 'timer') {
+                const controlsDiv = document.getElementById('controls');
+                const runningControlsDiv = document.getElementById('running-controls');
+                const progressContainer = document.getElementById('progress-container');
+                
+                if (controlsDiv) controlsDiv.classList.remove('hidden');
+                if (runningControlsDiv) runningControlsDiv.classList.add('hidden');
+                if (progressContainer) progressContainer.classList.add('hidden');
+            }
+            
+            // Handle break page controls
+            if (currentPage === 'break') {
+                const breakControls = document.getElementById('break-controls');
+                const breakRunningControls = document.getElementById('break-running-controls');
+                const breakProgressContainer = document.getElementById('break-progress-container');
+                
+                if (breakControls) breakControls.classList.remove('hidden');
+                if (breakRunningControls) breakRunningControls.classList.add('hidden');
+                if (breakProgressContainer) breakProgressContainer.classList.add('hidden');
+            }
         };
 
         const resetTimer = () => {
@@ -333,10 +357,10 @@
 
             if (sender === 'user') {
                 messageDiv.classList.add('items-end');
-                contentDiv.classList.add('bg-purple-600', 'text-white', 'rounded-br-none');
+                contentDiv.classList.add('bg-gray-400', 'text-black', 'rounded-br-none');
             } else {
                 messageDiv.classList.add('items-start');
-                contentDiv.classList.add('bg-slate-700', 'text-slate-200', 'rounded-bl-none', 'prose-custom');
+                contentDiv.classList.add('bg-gray-800', 'text-white', 'rounded-bl-none', 'prose-custom');
             }
             
             contentDiv.innerHTML = text;
@@ -415,9 +439,9 @@
                 badgeDiv.classList.add('flex', 'items-center', 'space-x-4', 'p-4', 'rounded-xl', 'shadow-md', 'transition-colors', 'duration-200');
 
                 if (isUnlocked) {
-                    badgeDiv.classList.add('bg-slate-700', 'text-green-400');
+                    badgeDiv.classList.add('bg-gray-800', 'text-green-400');
                 } else {
-                    badgeDiv.classList.add('bg-slate-800', 'text-slate-500', 'opacity-50');
+                    badgeDiv.classList.add('bg-gray-800', 'text-gray-400', 'opacity-50');
                 }
 
                 const iconSpan = document.createElement('span');
@@ -435,7 +459,7 @@
                 descP.classList.add('text-sm');
 
                 const progressBarContainer = document.createElement('div');
-                progressBarContainer.classList.add('w-full', 'bg-slate-600', 'rounded-full', 'h-2', 'mt-2');
+                progressBarContainer.classList.add('w-full', 'bg-gray-600', 'rounded-full', 'h-2', 'mt-2');
                 const progressBar = document.createElement('div');
                 progressBar.classList.add('bg-green-400', 'h-2', 'rounded-full', 'transition-all', 'duration-500');
                 progressBar.style.width = `${clampedProgress}%`;
@@ -475,7 +499,8 @@
             const breakTimerDisplay = document.getElementById('break-timer-display');
             const statusMessage = document.getElementById('status-message');
             const breakStatusMessage = document.getElementById('break-status-message');
-            const progressBar = document.getElementById('progress-bar');
+            const pomoProgressBar = document.getElementById('progress-bar');
+            const breakProgressBar = document.getElementById('break-progress-bar');
             
             const minutes = Math.floor(timerState.secondsLeft / 60);
             const seconds = timerState.secondsLeft % 60;
@@ -485,16 +510,22 @@
                 if (timerDisplay) timerDisplay.textContent = formattedTime;
                 if (statusMessage) statusMessage.textContent = timerState.mode === 'pomo' ? 'Time to focus!' : '';
                 document.title = `${formattedTime} | Fire Clock`;
-                // Update progress bar
-                if (progressBar) {
+                // Update Pomodoro progress bar
+                if (pomoProgressBar) {
                     const totalTime = timerConfig[timerState.mode];
                     const progress = ((totalTime - timerState.secondsLeft) / totalTime) * 100;
-                    progressBar.style.width = `${progress}%`;
+                    pomoProgressBar.style.width = `${progress}%`;
                 }
             } else if (currentPage === 'break') {
                 if (breakTimerDisplay) breakTimerDisplay.textContent = formattedTime;
                 if (breakStatusMessage) breakStatusMessage.textContent = timerState.mode === 'shortBreak' ? 'Short break!' : 'Long break! You earned it.';
                 document.title = `${formattedTime} | Break`;
+                // Update Break progress bar
+                if (breakProgressBar) {
+                    const totalTime = timerConfig[timerState.mode];
+                    const progress = ((totalTime - timerState.secondsLeft) / totalTime) * 100;
+                    breakProgressBar.style.width = `${progress}%`;
+                }
             } else {
                  document.title = 'Fire Clock';
             }
@@ -544,6 +575,7 @@
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', () => {
             const startPauseButton = document.getElementById('start-pause-btn');
+            const pauseButton = document.getElementById('pause-btn');
             const resetButton = document.getElementById('reset-btn');
             const setTimesBtn = document.getElementById('set-times-btn');
             const chatSendBtn = document.getElementById('chat-send-btn');
@@ -555,14 +587,17 @@
             const startTimerBtn = document.getElementById('start-timer-btn');
             const viewAchievementsBtn = document.getElementById('view-achievements-btn');
             const backToTimerBtn = document.getElementById('back-to-timer-btn');
+            const breakPauseButton = document.getElementById('break-pause-btn');
+            const breakResetButton = document.getElementById('break-reset-btn');
             
             if (startPauseButton) {
                 startPauseButton.addEventListener('click', () => {
-                    if (timerState.isPaused) {
-                        startTimer();
-                    } else {
-                        pauseTimer();
-                    }
+                    startTimer();
+                });
+            }
+            if (pauseButton) {
+                pauseButton.addEventListener('click', () => {
+                    pauseTimer();
                 });
             }
             if (resetButton) resetButton.addEventListener('click', resetTimer);
@@ -606,13 +641,13 @@
     </script>
 </head>
 
-<body class="bg-slate-900 text-white font-sans flex items-center justify-center min-h-screen p-4">
-    <div id="loading-page" class="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center text-white z-50">
+<body class="bg-black text-white font-sans flex items-center justify-center min-h-screen p-4">
+    <div id="loading-page" class="fixed inset-0 bg-black flex flex-col items-center justify-center text-white z-50">
         <div class="spinner"></div>
         <p class="mt-4 text-xl">Loading...</p>
     </div>
     
-    <main class="bg-slate-800 rounded-2xl shadow-xl p-8 max-w-sm w-full space-y-6 hidden">
+    <main class="bg-gray-900 rounded-2xl shadow-xl p-8 w-full max-w-4xl space-y-6 md:space-y-0 md:flex md:space-x-6 hidden">
         <!-- Intro Page -->
         <div id="intro-page">
             <div class="flex flex-col items-center justify-center mb-6">
@@ -645,11 +680,11 @@
                     </g>
                 </svg>
             </div>
-            <h1 class="text-4xl font-extrabold text-center text-slate-100 mb-4">Ignite Your Focus with Fire Clock</h1>
-            <p class="text-slate-400 text-center text-sm mb-6">
+            <h1 class="text-4xl font-extrabold text-center text-gray-100 mb-4">Ignite Your Focus with Fire Clock</h1>
+            <p class="text-gray-400 text-center text-sm mb-6">
                 The Pomodoro Technique is a time management method that uses a timer to break down work into intervals, typically 25 minutes in length, separated by short breaks.
             </p>
-            <div class="flex flex-col items-center space-y-4 text-slate-300 mb-6">
+            <div class="flex flex-col items-center space-y-4 text-gray-300 mb-6">
                 <p class="text-xl font-semibold">How it works:</p>
                 <ul class="list-disc list-inside space-y-2 text-left w-full max-w-xs mx-auto">
                     <li><span class="font-bold text-red-400">Work</span> for 25 minutes.</li>
@@ -664,114 +699,144 @@
         </div>
 
         <!-- Timer App Page -->
-        <div id="timer-page" class="hidden">
-            <h1 class="text-3xl font-bold text-center text-orange-400 mb-6">🔥 Fire Timer 🔥</h1>
+        <div id="timer-page" class="hidden flex-1 flex flex-col space-y-6">
+            <h1 class="text-5xl tracking-widest font-bold text-center text-gray-100 mb-6 font-['Michroma']">🔥 Fire Timer 🔥</h1>
+            
+            <div class="flex flex-col md:flex-row space-y-6 md:space-y-0 md:space-x-6 flex-1">
+                <!-- Left Column: Timer & Controls -->
+                <div class="flex-1 flex flex-col space-y-6">
+                    <!-- Main Timer and Controls Box -->
+                    <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
+                        <div class="text-center">
+                            <p id="status-message" class="text-xl text-gray-400 font-medium">Set your times to begin!</p>
+                            <div id="timer-display" class="text-8xl sm:text-9xl font-['Michroma'] font-extrabold text-white select-none mt-2">
+                                00:00
+                            </div>
+                        </div>
+                        
+                        <div id="controls" class="flex space-x-4 justify-center">
+                            <button id="start-pause-btn"
+                                class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105" disabled>
+                                Start
+                            </button>
+                            <button id="reset-btn"
+                                class="bg-red-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                                Reset
+                            </button>
+                        </div>
+                        <div id="running-controls" class="flex space-x-4 justify-center hidden">
+                            <button id="pause-btn"
+                                class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                                Pause
+                            </button>
+                            <button id="reset-btn-running"
+                                class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                                Reset
+                            </button>
+                        </div>
 
-            <!-- Main Timer and Controls Box -->
-            <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
-                <div class="text-center">
-                    <p id="status-message" class="text-xl text-slate-400 font-medium">Set your times to begin!</p>
-                    <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-red-400 select-none mt-2">
-                        00:00
-                    </div>
-                </div>
-                
-                <div id="controls" class="flex space-x-4 justify-center">
-                    <button id="start-pause-btn"
-                        class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105" disabled>
-                        Start
-                    </button>
-                    <button id="reset-btn"
-                        class="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Reset
-                    </button>
-                </div>
-
-                <div id="progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
-                    <div id="progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
-                </div>
-            </div>
-
-            <!-- Custom Time Setter Box -->
-            <div class="bg-slate-700 rounded-2xl p-6 space-y-4 mt-6">
-                <h2 class="text-xl font-bold text-center text-slate-100">Set Custom Pomodoro Time</h2>
-                
-                <div class="flex items-center space-x-2">
-                    <label for="pomo-time-input" class="text-slate-300 w-1/2">Pomodoro (min):</label>
-                    <input id="pomo-time-input" type="number" value="25" min="1"
-                           class="w-1/2 p-2 rounded-lg bg-slate-600 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                </div>
-                
-                <button id="set-times-btn"
-                    class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    Set Time
-                </button>
-            </div>
-
-            <button id="take-break-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                Take a Break
-            </button>
-
-
-            <button id="view-achievements-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                View Achievements
-            </button>
-
-            <!-- Chatbot Section -->
-            <div class="space-y-4 mt-6 pt-6 border-t border-slate-700">
-                <h2 class="text-2xl font-bold text-center text-slate-100">✨ J U N I O R</h2>
-                <div id="chat-window" class="h-64 overflow-y-auto p-4 bg-slate-700 rounded-xl space-y-2">
-                    <div class="flex flex-col items-start gap-1 mb-2">
-                        <div class="bg-slate-700 text-slate-200 px-4 py-2 rounded-xl rounded-bl-none text-sm prose-custom">
-                            Hi there! How can I help you stay focused today?
+                        <div id="progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
+                            <div id="progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
                         </div>
                     </div>
-                </div>
-                <div class="flex space-x-2">
-                    <input id="chat-input" type="text" placeholder="Type your message..."
-                           class="flex-grow p-3 rounded-full bg-slate-700 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500">
-                    <button id="chat-send-btn"
-                        class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Send
+
+                    <!-- Custom Time Setter Box -->
+                    <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
+                        <h2 class="text-xl font-bold text-center text-gray-100">Set Custom Pomodoro Time</h2>
+                        
+                        <div class="flex items-center space-x-2">
+                            <label for="pomo-time-input" class="text-gray-300 w-1/2"> Timer (min):</label>
+                            <input id="pomo-time-input" type="number" value="25" min="1"
+                                class="w-1/2 p-2 rounded-lg bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        </div>
+                        
+                        <button id="set-times-btn"
+                            class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                            Set Time
+                        </button>
+                    </div>
+
+                    <button id="take-break-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Take a Break
+                    </button>
+
+
+                    <button id="view-achievements-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        View Achievements
                     </button>
                 </div>
-                <p id="chat-loading" class="text-center text-purple-400 font-semibold animate-pulse hidden">Typing...</p>
+                
+                <!-- Right Column: Chatbot -->
+                <div class="flex-1 space-y-4 flex flex-col">
+                    <div class="bg-gray-800 rounded-2xl p-6 h-full flex flex-col">
+                        <h2 class="text-2xl font-bold text-center text-gray-100">✨ J U N I O R</h2>
+                        <div id="chat-window" class="h-64 overflow-y-auto p-4 bg-black rounded-xl space-y-2 mt-4 flex-grow">
+                            <div class="flex flex-col items-start gap-1 mb-2">
+                                <div class="bg-gray-800 text-white px-4 py-2 rounded-xl rounded-bl-none text-sm prose-custom">
+                                    Hi there! How can I help you stay focused today?
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex space-x-2 mt-4">
+                            <input id="chat-input" type="text" placeholder="Type your message..."
+                                class="flex-grow p-3 rounded-full bg-gray-800 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                            <button id="chat-send-btn"
+                                class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                                Send
+                            </button>
+                        </div>
+                        <p id="chat-loading" class="text-center text-purple-400 font-semibold animate-pulse hidden mt-2">Typing...</p>
+                    </div>
+                </div>
             </div>
-
-
-            <div class="text-center text-xs text-slate-500 mt-4 break-words">
+            <div class="text-center text-xs text-gray-500 mt-4 break-words">
                 <span id="user-id-display">Authenticating...</span>
             </div>
         </div>
 
         <!-- New Break Page -->
         <div id="break-page" class="hidden">
-            <h1 class="text-3xl font-bold text-center text-slate-100 mb-6">Take a Break</h1>
-            <p class="text-slate-400 text-center text-sm mb-6">
+            <h1 class="text-3xl font-bold text-center text-gray-100 mb-6">Take a Break</h1>
+            <p class="text-gray-400 text-center text-sm mb-6">
                 Choose the type of break you'd like to take.
             </p>
-            <div class="bg-slate-700 rounded-2xl p-6 space-y-4">
+            <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
                 <!-- Timer Display -->
-                <div id="break-timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-blue-400 text-center select-none">
+                <div id="break-timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-white text-center select-none">
                     00:00
                 </div>
 
                 <!-- Status Message -->
-                <p id="break-status-message" class="text-center text-xl text-slate-400 font-medium">Choose a break to begin!</p>
+                <p id="break-status-message" class="text-center text-xl text-gray-400 font-medium">Choose a break to begin!</p>
+                
+                <div id="break-controls" class="flex space-x-4 justify-center">
+                    <button id="short-break-btn"
+                        class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Short Break
+                    </button>
+                    <button id="long-break-btn"
+                        class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Long Break
+                    </button>
+                </div>
+                <div id="break-running-controls" class="flex space-x-4 justify-center hidden">
+                    <button id="break-pause-btn"
+                        class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Pause
+                    </button>
+                    <button id="break-reset-btn"
+                        class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                        Reset
+                    </button>
+                </div>
+
+
+                <div id="break-progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
+                    <div id="break-progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
+                </div>
             </div>
             
-            <div class="flex space-x-4 justify-center mt-6">
-                <button id="short-break-btn"
-                    class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    Short Break
-                </button>
-                <button id="long-break-btn"
-                    class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    Long Break
-                </button>
-            </div>
-            
-            <button id="back-from-break-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+            <button id="back-from-break-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
                 Back to Timer
             </button>
         </div>
@@ -780,35 +845,35 @@
         <!-- Achievements Page -->
         <div id="achievements-page" class="hidden">
             <div class="text-center mb-6">
-                <h1 class="text-3xl font-bold text-slate-100">Your Progress</h1>
-                <p class="text-slate-400">Unlock achievements by staying focused.</p>
+                <h1 class="text-3xl font-bold text-gray-100">Your Progress</h1>
+                <p class="text-gray-400">Unlock achievements by staying focused.</p>
             </div>
             
             <div id="achievements-container" class="space-y-4 max-h-[400px] overflow-y-auto pr-2">
             </div>
 
-            <div class="mt-6 pt-6 border-t border-slate-700">
-                <h2 class="text-xl font-semibold text-center text-slate-300 mb-4">Statistics</h2>
+            <div class="mt-6 pt-6 border-t border-gray-700">
+                <h2 class="text-xl font-semibold text-center text-gray-300 mb-4">Statistics</h2>
                 <div class="grid grid-cols-2 gap-4 text-center">
                     
-                    <div class="bg-slate-800 p-4 rounded-xl">
-                        <div id="streak-stat" class="flex items-center justify-center space-x-2 text-slate-500">
+                    <div class="bg-gray-800 p-4 rounded-xl">
+                        <div id="streak-stat" class="flex items-center justify-center space-x-2 text-gray-500">
                             <span id="streak" class="text-5xl font-extrabold">0</span>
                             <span id="streak-icon" class="duolingo-fire-icon text-5xl">🔥</span>
                         </div>
-                        <span class="text-slate-400 text-sm mt-1">Day Streak</span>
+                        <span class="text-gray-400 text-sm mt-1">Day Streak</span>
                     </div>
 
-                    <div class="bg-slate-800 p-4 rounded-xl">
+                    <div class="bg-gray-800 p-4 rounded-xl">
                         <div class="text-purple-400">
                             <span id="total-sessions" class="text-5xl font-extrabold">0</span>
                         </div>
-                        <span class="text-slate-400 text-sm mt-1">Total Sessions</span>
+                        <span class="text-gray-400 text-sm mt-1">Total Sessions</span>
                     </div>
                 </div>
             </div>
 
-            <button id="back-to-timer-btn" class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 mt-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+            <button id="back-to-timer-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 mt-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
                 Back to Timer
             </button>
         </div>
