@@ -181,8 +181,6 @@
             
             // Handle timer page controls
             if (currentPage === 'timer') {
-                const startPauseButton = document.getElementById('start-pause-btn');
-                const resetButton = document.getElementById('reset-btn');
                 const controlsDiv = document.getElementById('controls');
                 const runningControlsDiv = document.getElementById('running-controls');
                 const progressContainer = document.getElementById('progress-container');
@@ -649,7 +647,7 @@
     
     <main class="bg-gray-900 rounded-2xl shadow-xl p-8 w-full max-w-4xl space-y-6 md:space-y-0 md:flex md:space-x-6 hidden">
         <!-- Intro Page -->
-        <div id="intro-page">
+        <div id="intro-page" class="flex flex-col items-center justify-center text-center">
             <div class="flex flex-col items-center justify-center mb-6">
                 <!-- Custom Dynamic Wolf Logo -->
                 <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -795,50 +793,52 @@
         </div>
 
         <!-- New Break Page -->
-        <div id="break-page" class="hidden">
-            <h1 class="text-3xl font-bold text-center text-gray-100 mb-6">Take a Break</h1>
-            <p class="text-gray-400 text-center text-sm mb-6">
-                Choose the type of break you'd like to take.
-            </p>
-            <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
-                <!-- Timer Display -->
-                <div id="break-timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-white text-center select-none">
-                    00:00
-                </div>
+        <div id="break-page" class="hidden flex flex-col items-center justify-center min-h-screen bg-black">
+            <div class="max-w-md w-full p-4">
+                <h1 class="text-3xl font-bold text-center text-gray-100 mb-6">Take a Break</h1>
+                <p class="text-gray-400 text-center text-sm mb-6">
+                    Choose the type of break you'd like to take.
+                </p>
+                <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
+                    <!-- Timer Display -->
+                    <div id="break-timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold text-white text-center select-none">
+                        00:00
+                    </div>
 
-                <!-- Status Message -->
-                <p id="break-status-message" class="text-center text-xl text-gray-400 font-medium">Choose a break to begin!</p>
+                    <!-- Status Message -->
+                    <p id="break-status-message" class="text-center text-xl text-gray-400 font-medium">Choose a break to begin!</p>
+                    
+                    <div id="break-controls" class="flex space-x-4 justify-center">
+                        <button id="short-break-btn"
+                            class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                            Short Break
+                        </button>
+                        <button id="long-break-btn"
+                            class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                            Long Break
+                        </button>
+                    </div>
+                    <div id="break-running-controls" class="flex space-x-4 justify-center hidden">
+                        <button id="break-pause-btn"
+                            class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                            Pause
+                        </button>
+                        <button id="break-reset-btn"
+                            class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                            Reset
+                        </button>
+                    </div>
+
+
+                    <div id="break-progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
+                        <div id="break-progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
+                    </div>
+                </div>
                 
-                <div id="break-controls" class="flex space-x-4 justify-center">
-                    <button id="short-break-btn"
-                        class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Short Break
-                    </button>
-                    <button id="long-break-btn"
-                        class="w-1/2 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Long Break
-                    </button>
-                </div>
-                <div id="break-running-controls" class="flex space-x-4 justify-center hidden">
-                    <button id="break-pause-btn"
-                        class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Pause
-                    </button>
-                    <button id="break-reset-btn"
-                        class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Reset
-                    </button>
-                </div>
-
-
-                <div id="break-progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
-                    <div id="break-progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
-                </div>
+                <button id="back-from-break-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
+                    Back to Timer
+                </button>
             </div>
-            
-            <button id="back-from-break-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                Back to Timer
-            </button>
         </div>
 
 
