@@ -1,871 +1,365 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fire Clock</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Michroma&display=swap');
-        @keyframes fire-glow {
-            0%, 100% {
-                text-shadow: 0 0 5px #ff8c00, 0 0 10px #ff7f50, 0 0 15px #ff6347;
-            }
-            50% {
-                text-shadow: 0 0 10px #ff4500, 0 0 20px #ff6347, 0 0 30px #ff8c00;
-            }
-        }
-        .fire-theme {
-            animation: fire-glow 2s ease-in-out infinite;
-        }
-        .duolingo-fire-icon {
-            font-size: 2rem;
-            line-height: 1;
-        }
-        .prose-custom {
-            font-family: inherit;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid #fff;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes pulse-fire {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
-        .dynamic-fire {
-            animation: pulse-fire 2s ease-in-out infinite;
-            transform-origin: center;
-        }
-    </style>
-    <script type="module">
-        // Firebase imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc, updateDoc, collection, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global variables provided by the environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        // --- Application State ---
-        let app = null;
-        let db = null;
-        let auth = null;
-        let userId = null;
-        let docRef = null;
-        let isAuthReady = false;
-
-        let timerConfig = {
-            pomo: 25 * 60,
-            shortBreak: 5 * 60,
-            longBreak: 15 * 60,
-        };
-
-        let timerState = {
-            mode: 'pomo', // 'pomo', 'shortBreak', 'longBreak'
-            isPaused: true,
-            secondsLeft: 0,
-            sessionsToday: 0,
-            sessionsTotal: 0,
-            pomoCount: 0,
-            streak: 0,
-            lastSessionDate: null,
-        };
-        
-        let timerInterval = null;
-        let currentPage = 'loading';
-        let achievements = [
-            { name: "Focused Starter", description: "Complete 1 Pomodoro session.", icon: "✨", conditionType: "sessions", conditionValue: 1 },
-            { name: "Pomodoro Apprentice", description: "Complete 10 Pomodoro sessions.", icon: "🌟", conditionType: "sessions", conditionValue: 10 },
-            { name: "Pomodoro Master", description: "Complete 25 Pomodoro sessions.", icon: "🏆", conditionType: "sessions", conditionValue: 25 },
-            { name: "Focused Veteran", description: "Complete 50 Pomodoro sessions.", icon: "🚀", conditionType: "sessions", conditionValue: 50 },
-            { name: "Streak Keeper", description: "Maintain a 3-day streak.", icon: "🔥", conditionType: "streak", conditionValue: 3 },
-            { name: "Streak Master", description: "Maintain a 7-day streak.", icon: "🥇", conditionType: "streak", conditionValue: 7 },
-        ];
-
-
-        // --- DOM Elements ---
-        const startTimerBtn = document.getElementById('start-timer-btn');
-        const viewAchievementsBtn = document.getElementById('view-achievements-btn');
-        const backToTimerBtn = document.getElementById('back-to-timer-btn');
-        const takeBreakBtn = document.getElementById('take-break-btn');
-        const backFromBreakBtn = document.getElementById('back-from-break-btn');
-
-        const loadingPage = document.getElementById('loading-page');
-        const introPage = document.getElementById('intro-page');
-        const timerPage = document.getElementById('timer-page');
-        const achievementsPage = document.getElementById('achievements-page');
-        const breakPage = document.getElementById('break-page');
-
-
-        const userIdDisplay = document.getElementById('user-id-display');
-
-        // --- Firebase Initialization and Data Handling ---
-        const initFirebase = async () => {
-            try {
-                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-                    throw new Error("Firebase configuration is missing or invalid.");
-                }
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                setLogLevel('debug');
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        docRef = doc(db, 'artifacts', appId, 'users', userId, 'pomodoro_data', 'timer_data');
-                        console.log("Firebase initialized for user:", userId);
-                        if (userIdDisplay) userIdDisplay.textContent = `User ID: ${userId}`;
-                        isAuthReady = true;
-                        
-                        // Attach real-time listener
-                        onSnapshot(docRef, (doc) => {
-                            if (doc.exists()) {
-                                const data = doc.data();
-                                console.log("Data loaded from Firestore:", data);
-                                Object.assign(timerState, data);
-                                updateUI();
-                            } else {
-                                console.log("No data found for this user. Creating a new document.");
-                                setDoc(docRef, timerState);
-                            }
-                        }, (error) => {
-                            console.error("Error listening to document:", error);
-                        });
-                    } else {
-                        console.log("No user signed in. Signing in anonymously.");
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error("Failed to initialize Firebase:", error);
-            }
-        };
-        
-        const saveDataToFirestore = async () => {
-            if (!isAuthReady) {
-                console.warn("Authentication not ready. Cannot save data.");
-                return;
-            }
-            try {
-                await setDoc(docRef, timerState, { merge: true });
-                console.log("Data saved successfully!");
-            } catch (error) {
-                console.error("Error saving data to Firestore:", error);
-            }
-        };
-
-        // --- Timer Logic ---
-        const startTimer = () => {
-            if (timerInterval) return;
-            
-            timerState.isPaused = false;
-            
-            // Handle timer page controls
-            if (currentPage === 'timer') {
-                const controlsDiv = document.getElementById('controls');
-                const runningControlsDiv = document.getElementById('running-controls');
-                const progressContainer = document.getElementById('progress-container');
-                
-                if (controlsDiv) controlsDiv.classList.add('hidden');
-                if (runningControlsDiv) runningControlsDiv.classList.remove('hidden');
-                if (progressContainer) progressContainer.classList.remove('hidden');
-            }
-            
-            // Handle break page controls
-            if (currentPage === 'break') {
-                const breakControls = document.getElementById('break-controls');
-                const breakRunningControls = document.getElementById('break-running-controls');
-                const breakProgressContainer = document.getElementById('break-progress-container');
-                
-                if (breakControls) breakControls.classList.add('hidden');
-                if (breakRunningControls) breakRunningControls.classList.remove('hidden');
-                if (breakProgressContainer) breakProgressContainer.classList.remove('hidden');
-            }
-
-
-            timerInterval = setInterval(() => {
-                timerState.secondsLeft--;
-                updateUI();
-                if (timerState.secondsLeft <= 0) {
-                    endTimer();
-                }
-            }, 1000);
-        };
-
-        const pauseTimer = () => {
-            if (!timerInterval) return;
-            
-            timerState.isPaused = true;
-            clearInterval(timerInterval);
-            timerInterval = null;
-            
-            // Handle timer page controls
-            if (currentPage === 'timer') {
-                const controlsDiv = document.getElementById('controls');
-                const runningControlsDiv = document.getElementById('running-controls');
-                const progressContainer = document.getElementById('progress-container');
-                
-                if (controlsDiv) controlsDiv.classList.remove('hidden');
-                if (runningControlsDiv) runningControlsDiv.classList.add('hidden');
-                if (progressContainer) progressContainer.classList.add('hidden');
-            }
-            
-            // Handle break page controls
-            if (currentPage === 'break') {
-                const breakControls = document.getElementById('break-controls');
-                const breakRunningControls = document.getElementById('break-running-controls');
-                const breakProgressContainer = document.getElementById('break-progress-container');
-                
-                if (breakControls) breakControls.classList.remove('hidden');
-                if (breakRunningControls) breakRunningControls.classList.add('hidden');
-                if (breakProgressContainer) breakProgressContainer.classList.add('hidden');
-            }
-        };
-
-        const resetTimer = () => {
-            const pomoTimeInput = document.getElementById('pomo-time-input');
-            pauseTimer();
-            timerState.secondsLeft = timerConfig[timerState.mode];
-            if(pomoTimeInput) pomoTimeInput.value = timerConfig.pomo / 60;
-            updateUI();
-        };
-
-        const endTimer = () => {
-            const statusMessage = document.getElementById('status-message');
-            pauseTimer();
-
-            if (timerState.mode === 'pomo') {
-                updateStreak();
-                timerState.sessionsToday++;
-                timerState.sessionsTotal++;
-                timerState.pomoCount++;
-                saveDataToFirestore(); // Save on session completion
-
-                if (timerState.pomoCount % 4 === 0) {
-                    timerState.mode = 'longBreak';
-                    if (statusMessage) statusMessage.textContent = 'Long break! You earned it.';
-                } else {
-                    timerState.mode = 'shortBreak';
-                    if (statusMessage) statusMessage.textContent = 'Short break.';
-                }
-            } else {
-                timerState.mode = 'pomo';
-                if (statusMessage) statusMessage.textContent = 'Time to focus!';
-                showPage('timer'); // Automatically go back to the timer page after a break ends
-            }
-            timerState.secondsLeft = timerConfig[timerState.mode];
-            updateUI();
-        };
-
-        const updateStreak = () => {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayStr = today.toISOString().split('T')[0];
-
-            if (timerState.lastSessionDate) {
-                const lastDate = new Date(timerState.lastSessionDate);
-                lastDate.setHours(0, 0, 0, 0);
-
-                const oneDay = 24 * 60 * 60 * 1000;
-                const diffDays = Math.round((today.getTime() - lastDate.getTime()) / oneDay);
-
-                if (diffDays === 1) {
-                    timerState.streak++;
-                } else if (diffDays > 1) {
-                    timerState.streak = 1;
-                }
-            } else {
-                timerState.streak = 1;
-            }
-            timerState.lastSessionDate = todayStr;
-        };
-
-        // --- Custom Time Setter Logic ---
-        const setCustomTimes = () => {
-            const pomoTimeInput = document.getElementById('pomo-time-input');
-            const startPauseButton = document.getElementById('start-pause-btn');
-            const statusMessage = document.getElementById('status-message');
-            if(!pomoTimeInput || !startPauseButton || !statusMessage) return;
-
-            pauseTimer();
-            const pomoMins = parseInt(pomoTimeInput.value, 10);
-            if (isNaN(pomoMins) || pomoMins <= 0) {
-                 alert('Please enter a valid positive number for Pomodoro time.');
-                 return;
-            }
-
-            timerConfig.pomo = pomoMins * 60;
-            
-            timerState.mode = 'pomo';
-            timerState.secondsLeft = timerConfig.pomo;
-            updateUI();
-            startPauseButton.disabled = false;
-            statusMessage.textContent = 'Time set! Click Start to begin.';
-        };
-
-        // --- Manual Break Logic ---
-        const startShortBreak = () => {
-            const breakStatusMessage = document.getElementById('break-status-message');
-            if(!breakStatusMessage) return;
-            pauseTimer();
-            timerState.mode = 'shortBreak';
-            timerState.secondsLeft = timerConfig.shortBreak;
-            breakStatusMessage.textContent = 'Short break.';
-            startTimer();
-        };
-
-        const startLongBreak = () => {
-            const breakStatusMessage = document.getElementById('break-status-message');
-            if(!breakStatusMessage) return;
-            pauseTimer();
-            timerState.mode = 'longBreak';
-            timerState.secondsLeft = timerConfig.longBreak;
-            breakStatusMessage.textContent = 'Long break! You earned it.';
-            startTimer();
-        };
-
-        // --- Chatbot Logic ---
-        const addMessageToChat = (text, sender) => {
-            const chatWindow = document.getElementById('chat-window');
-            if (!chatWindow) return;
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('flex', 'flex-col', 'gap-1', 'mb-2');
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.classList.add('px-4', 'py-2', 'rounded-xl', 'text-sm');
-
-            if (sender === 'user') {
-                messageDiv.classList.add('items-end');
-                contentDiv.classList.add('bg-gray-400', 'text-black', 'rounded-br-none');
-            } else {
-                messageDiv.classList.add('items-start');
-                contentDiv.classList.add('bg-gray-800', 'text-white', 'rounded-bl-none', 'prose-custom');
-            }
-            
-            contentDiv.innerHTML = text;
-            messageDiv.appendChild(contentDiv);
-            chatWindow.appendChild(messageDiv);
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        };
-
-        const sendMessage = async () => {
-            const chatInput = document.getElementById('chat-input');
-            const chatSendBtn = document.getElementById('chat-send-btn');
-            const chatLoading = document.getElementById('chat-loading');
-            if (!chatInput || !chatSendBtn || !chatLoading) return;
-
-            const userMessage = chatInput.value.trim();
-            if (!userMessage) return;
-
-            addMessageToChat(userMessage, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            chatSendBtn.disabled = true;
-            chatLoading.classList.remove('hidden');
-
-            const prompt = userMessage;
-            const apiKey = "";
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-
-            try {
-                const payload = {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    tools: [{ "google_search": {} }],
-                };
-
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const result = await response.json();
-                const candidate = result.candidates?.[0];
-                const text = candidate?.content?.parts?.[0]?.text;
-
-                if (text) {
-                    addMessageToChat(text, 'bot');
-                } else {
-                    addMessageToChat("I'm sorry, I couldn't get a response. Please try again.", 'bot');
-                }
-
-            } catch (error) {
-                console.error("Chatbot API call failed:", error);
-                addMessageToChat("An error occurred. Please check your network connection.", 'bot');
-            } finally {
-                chatInput.disabled = false;
-                chatSendBtn.disabled = false;
-                chatLoading.classList.add('hidden');
-            }
-        };
-
-        const renderAchievements = () => {
-            const achievementsContainer = document.getElementById('achievements-container');
-            const streakDisplay = document.getElementById('streak');
-            const totalSessionsDisplay = document.getElementById('total-sessions');
-            const streakIcon = document.getElementById('streak-icon');
-            if (!achievementsContainer || !streakDisplay || !totalSessionsDisplay || !streakIcon) return;
-
-            achievementsContainer.innerHTML = '';
-            achievements.forEach(achievement => {
-                const currentProgress = achievement.conditionType === 'sessions' ? timerState.sessionsTotal : timerState.streak;
-                const isUnlocked = currentProgress >= achievement.conditionValue;
-
-                const progressPercentage = (currentProgress / achievement.conditionValue) * 100;
-                const clampedProgress = Math.min(progressPercentage, 100);
-
-                const badgeDiv = document.createElement('div');
-                badgeDiv.classList.add('flex', 'items-center', 'space-x-4', 'p-4', 'rounded-xl', 'shadow-md', 'transition-colors', 'duration-200');
-
-                if (isUnlocked) {
-                    badgeDiv.classList.add('bg-gray-800', 'text-green-400');
-                } else {
-                    badgeDiv.classList.add('bg-gray-800', 'text-gray-400', 'opacity-50');
-                }
-
-                const iconSpan = document.createElement('span');
-                iconSpan.textContent = isUnlocked ? achievement.icon : '🔒';
-                iconSpan.classList.add('text-3xl');
-
-                const textDiv = document.createElement('div');
-                textDiv.classList.add('flex-grow');
-                const nameH3 = document.createElement('h3');
-                nameH3.textContent = achievement.name;
-                nameH3.classList.add('font-bold');
-
-                const descP = document.createElement('p');
-                descP.textContent = achievement.description;
-                descP.classList.add('text-sm');
-
-                const progressBarContainer = document.createElement('div');
-                progressBarContainer.classList.add('w-full', 'bg-gray-600', 'rounded-full', 'h-2', 'mt-2');
-                const progressBar = document.createElement('div');
-                progressBar.classList.add('bg-green-400', 'h-2', 'rounded-full', 'transition-all', 'duration-500');
-                progressBar.style.width = `${clampedProgress}%`;
-                
-                progressBarContainer.appendChild(progressBar);
-
-
-                const progressTextP = document.createElement('p');
-                progressTextP.classList.add('text-sm', 'mt-1');
-                progressTextP.textContent = isUnlocked ? "Unlocked!" : `Progress: ${currentProgress}/${achievement.conditionValue}`;
-
-
-                textDiv.appendChild(nameH3);
-                textDiv.appendChild(descP);
-                if (!isUnlocked) {
-                    textDiv.appendChild(progressBarContainer);
-                    textDiv.appendChild(progressTextP);
-                }
-
-
-                badgeDiv.appendChild(iconSpan);
-                badgeDiv.appendChild(textDiv);
-                achievementsContainer.appendChild(badgeDiv);
-            });
-            totalSessionsDisplay.textContent = timerState.sessionsTotal;
-            streakDisplay.textContent = timerState.streak;
-            if (timerState.streak > 0) {
-                 streakIcon.classList.add('fire-theme');
-            } else {
-                 streakIcon.classList.remove('fire-theme');
-            }
-        };
-
-        // --- UI Updates ---
-        const updateUI = () => {
-            const timerDisplay = document.getElementById('timer-display');
-            const breakTimerDisplay = document.getElementById('break-timer-display');
-            const statusMessage = document.getElementById('status-message');
-            const breakStatusMessage = document.getElementById('break-status-message');
-            const pomoProgressBar = document.getElementById('progress-bar');
-            const breakProgressBar = document.getElementById('break-progress-bar');
-            
-            const minutes = Math.floor(timerState.secondsLeft / 60);
-            const seconds = timerState.secondsLeft % 60;
-            const formattedTime = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            
-            if (currentPage === 'timer') {
-                if (timerDisplay) timerDisplay.textContent = formattedTime;
-                if (statusMessage) statusMessage.textContent = timerState.mode === 'pomo' ? 'Time to focus!' : '';
-                document.title = `${formattedTime} | Fire Clock`;
-                // Update Pomodoro progress bar
-                if (pomoProgressBar) {
-                    const totalTime = timerConfig[timerState.mode];
-                    const progress = ((totalTime - timerState.secondsLeft) / totalTime) * 100;
-                    pomoProgressBar.style.width = `${progress}%`;
-                }
-            } else if (currentPage === 'break') {
-                if (breakTimerDisplay) breakTimerDisplay.textContent = formattedTime;
-                if (breakStatusMessage) breakStatusMessage.textContent = timerState.mode === 'shortBreak' ? 'Short break!' : 'Long break! You earned it.';
-                document.title = `${formattedTime} | Break`;
-                // Update Break progress bar
-                if (breakProgressBar) {
-                    const totalTime = timerConfig[timerState.mode];
-                    const progress = ((totalTime - timerState.secondsLeft) / totalTime) * 100;
-                    breakProgressBar.style.width = `${progress}%`;
-                }
-            } else {
-                 document.title = 'Fire Clock';
-            }
-        };
-
-        const showPage = (pageName) => {
-            currentPage = pageName;
-            
-            const mainContent = document.querySelector('main');
-            const loadingPage = document.getElementById('loading-page');
-            const introPage = document.getElementById('intro-page');
-            const timerPage = document.getElementById('timer-page');
-            const achievementsPage = document.getElementById('achievements-page');
-            const breakPage = document.getElementById('break-page');
-
-
-            if (pageName !== 'loading' && mainContent) {
-                mainContent.classList.remove('hidden');
-            }
-            
-            if (loadingPage) loadingPage.classList.add('hidden');
-            if (introPage) introPage.classList.add('hidden');
-            if (timerPage) timerPage.classList.add('hidden');
-            if (achievementsPage) achievementsPage.classList.add('hidden');
-            if (breakPage) breakPage.classList.add('hidden');
-
-            pauseTimer();
-
-            if (currentPage === 'loading') {
-                if(loadingPage) loadingPage.classList.remove('hidden');
-            } else if (currentPage === 'intro') {
-                if(introPage) introPage.classList.remove('hidden');
-            } else if (currentPage === 'timer') {
-                if(timerPage) timerPage.classList.remove('hidden');
-                const pomoTimeInput = document.getElementById('pomo-time-input');
-                if(pomoTimeInput) pomoTimeInput.value = timerConfig.pomo / 60;
-                updateUI();
-            } else if (currentPage === 'achievements') {
-                if(achievementsPage) achievementsPage.classList.remove('hidden');
-                renderAchievements();
-                updateUI();
-            } else if (currentPage === 'break') {
-                if(breakPage) breakPage.classList.remove('hidden');
-            }
-        };
-
-        // --- Event Listeners ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const startPauseBtn = document.getElementById('start-pause-btn');
-            const pauseBtn = document.getElementById('pause-btn');
-            const resetButton = document.getElementById('reset-btn');
-            const runningResetBtn = document.getElementById('reset-btn-running');
-            const setTimesBtn = document.getElementById('set-times-btn');
-            const chatSendBtn = document.getElementById('chat-send-btn');
-            const shortBreakBtn = document.getElementById('short-break-btn');
-            const longBreakBtn = document.getElementById('long-break-btn');
-            const takeBreakBtn = document.getElementById('take-break-btn');
-            const backFromBreakBtn = document.getElementById('back-from-break-btn');
-            const chatInput = document.getElementById('chat-input');
-            const startTimerBtn = document.getElementById('start-timer-btn');
-            const viewAchievementsBtn = document.getElementById('view-achievements-btn');
-            const backToTimerBtn = document.getElementById('back-to-timer-btn');
-            const breakPauseButton = document.getElementById('break-pause-btn');
-            const breakResetButton = document.getElementById('break-reset-btn');
-            
-            if (startPauseBtn) {
-                startPauseBtn.addEventListener('click', () => {
-                    startTimer();
-                });
-            }
-            if (pauseBtn) {
-                pauseBtn.addEventListener('click', () => {
-                    pauseTimer();
-                });
-            }
-            if (resetButton) resetButton.addEventListener('click', resetTimer);
-            if (runningResetBtn) runningResetBtn.addEventListener('click', resetTimer);
-
-            if (setTimesBtn) setTimesBtn.addEventListener('click', setCustomTimes);
-            if (chatSendBtn) chatSendBtn.addEventListener('click', sendMessage);
-            if (shortBreakBtn) {
-                 shortBreakBtn.addEventListener('click', () => {
-                    timerState.mode = 'shortBreak';
-                    timerState.secondsLeft = timerConfig.shortBreak;
-                    startTimer();
-                });
-            }
-            if (longBreakBtn) {
-                longBreakBtn.addEventListener('click', () => {
-                    timerState.mode = 'longBreak';
-                    timerState.secondsLeft = timerConfig.longBreak;
-                    startTimer();
-                });
-            }
-            if (takeBreakBtn) takeBreakBtn.addEventListener('click', () => showPage('break'));
-            if (backFromBreakBtn) backFromBreakBtn.addEventListener('click', () => showPage('timer'));
-            if (chatInput) {
-                chatInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        sendMessage();
-                    }
-                });
-            }
-            if (breakPauseButton) {
-                breakPauseButton.addEventListener('click', () => {
-                    pauseTimer();
-                });
-            }
-            if (breakResetButton) {
-                breakResetButton.addEventListener('click', () => {
-                    resetTimer();
-                });
-            }
-            
-            if (startTimerBtn) startTimerBtn.addEventListener('click', () => showPage('timer'));
-            if (viewAchievementsBtn) viewAchievementsBtn.addEventListener('click', () => showPage('achievements'));
-            if (backToTimerBtn) backToTimerBtn.addEventListener('click', () => showPage('timer'));
-            
-            initFirebase();
-            showPage('loading');
-            setTimeout(() => {
-                showPage('intro');
-            }, 1000);
-            updateUI();
-        });
-    </script>
-</head>
-
-<body class="bg-black text-white font-sans flex items-center justify-center min-h-screen p-4">
-    <div id="loading-page" class="fixed inset-0 bg-black flex flex-col items-center justify-center text-white z-50">
-        <div class="spinner"></div>
-        <p class="mt-4 text-xl">Loading...</p>
-    </div>
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { X, CheckCircle, Circle, Plus, Trash2, Loader, Calendar, User, AlertTriangle } from 'lucide-react';
+
+// --- FIREBASE SETUP ---
+// Global variables provided by the environment
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// The collection path for private user data (tasks)
+const TASKS_DOC_PATH = `/artifacts/${appId}/users/`;
+const TASKS_DOC_ID = 'weekly_tasks';
+
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+// Utility function for generating simple unique IDs
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substring(2);
+
+const App = () => {
+  
+  // Use useMemo to safely define the initial structured state for all days
+  const initialTasksState = useMemo(() => {
+    return WEEKDAYS.reduce((acc, day) => ({ ...acc, [day]: [] }), {});
+  }, []);
+
+  // --- STATE ---
+  const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  // Initialize tasks with the correct structure immediately
+  const [tasks, setTasks] = useState(initialTasksState); 
+  const [currentDay, setCurrentDay] = useState(WEEKDAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [firebaseError, setFirebaseError] = useState(null);
+
+  // --- FIREBASE INITIALIZATION & AUTH ---
+  useEffect(() => {
+    let authSubscription;
     
-    <main class="bg-gray-900 rounded-2xl shadow-xl p-8 w-full max-w-4xl space-y-6 md:space-y-0 md:flex md:space-x-6 hidden">
-        <!-- Intro Page -->
-        <div id="intro-page" class="flex flex-col items-center justify-center text-center">
-            <div class="flex flex-col items-center justify-center mb-6">
-                <!-- Custom Dynamic Wolf Logo -->
-                <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <style>
-                        @keyframes wolf-pulse {
-                            0% { transform: scale(1); }
-                            50% { transform: scale(1.05); }
-                            100% { transform: scale(1); }
-                        }
-                        .wolf-logo {
-                            animation: wolf-pulse 2s ease-in-out infinite;
-                            transform-origin: center;
-                        }
-                    </style>
-                    <g class="wolf-logo">
-                        <path d="M50 10 C 20 10 10 30 10 50 C 10 70 20 90 50 90 C 80 90 90 70 90 50 C 90 30 80 10 50 10 Z" fill="#2D3748" stroke="#CBD5E0" stroke-width="2"/>
-                        <path d="M50 40 L 35 60 L 45 65 L 50 55 L 55 65 L 65 60 L 50 40 Z" fill="#A0AEC0"/>
-                        <circle cx="40" cy="45" r="5" fill="#CBD5E0"/>
-                        <circle cx="60" cy="45" r="5" fill="#CBD5E0"/>
-                        <path d="M50 55 L 45 70 L 55 70 Z" fill="#E2E8F0"/>
-                        <path d="M40 70 L 45 80 L 50 70 Z" fill="#E2E8F0"/>
-                        <path d="M60 70 L 55 80 L 50 70 Z" fill="#E2E8F0"/>
-                        <path d="M42 55 L 35 65 L 30 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M58 55 L 65 65 L 70 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M50 55 L 50 65 L 50 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M50 55 L 45 65 L 40 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
-                        <path d="M50 55 L 55 65 L 60 75" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-linecap="round"/>
-                    </g>
-                </svg>
+    try {
+      if (Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey) {
+        const app = initializeApp(firebaseConfig);
+        const firestore = getFirestore(app);
+        const firebaseAuth = getAuth(app);
+        setDb(firestore);
+        setAuth(firebaseAuth);
+
+        authSubscription = onAuthStateChanged(firebaseAuth, (user) => {
+          if (user) {
+            setUserId(user.uid);
+          } else {
+            // Sign in anonymously or with custom token
+            const signInPromise = initialAuthToken
+              ? signInWithCustomToken(firebaseAuth, initialAuthToken)
+              : signInAnonymously(firebaseAuth);
+
+            signInPromise
+              .then((userCredential) => {
+                setUserId(userCredential.user.uid);
+              })
+              .catch((error) => {
+                console.error("Firebase Auth Error:", error);
+                setFirebaseError(`Authentication failed: ${error.code}`);
+                // Fallback userId is set below to ensure loading stops
+                setUserId(crypto.randomUUID());
+              })
+              .finally(() => {
+                  // Crucial: Ensure readiness is always set regardless of auth success/fail
+                  setIsAuthReady(true);
+              });
+          }
+        });
+      } else {
+        // Fallback for non-Firebase environment
+        console.warn("Firebase config missing or incomplete. Using local state.");
+        setFirebaseError("Firebase config is missing or invalid. Data will not persist.");
+        setUserId('local-user'); // Set local userId
+        setIsAuthReady(true); // Stop auth loading
+      }
+    } catch (e) {
+      console.error("Initialization failed:", e);
+      setFirebaseError(`Initialization failed: ${e.message}`);
+      setUserId(crypto.randomUUID());
+      setIsAuthReady(true); // Stop auth loading
+    }
+    
+    // Cleanup for onAuthStateChanged
+    return () => {
+        if (authSubscription) {
+            authSubscription();
+        }
+    };
+  }, [initialTasksState]); // initialTasksState is constant, safe dependency
+
+  // --- FIRESTORE DATA LISTENER (onSnapshot) ---
+  useEffect(() => {
+    // Only proceed if auth process is complete and a userId is determined
+    if (!isAuthReady || !userId) {
+        return;
+    }
+
+    // Handle local user fallback immediately
+    if (userId === 'local-user') {
+        // Tasks are already initialized via useState(initialTasksState)
+        setLoading(false); 
+        return;
+    }
+    
+    // Handle Firebase user
+    if (db) {
+        const docRef = doc(db, TASKS_DOC_PATH + userId, TASKS_DOC_ID);
+
+        const unsubscribe = onSnapshot(docRef, (docSnapshot) => {
+            if (docSnapshot.exists()) {
+                const fetchedTasks = docSnapshot.data();
+                // Merge fetched data with the initial structured state to ensure all days are present
+                const mergedTasks = WEEKDAYS.reduce((acc, day) => {
+                    acc[day] = fetchedTasks[day] || [];
+                    return acc;
+                }, {});
+                setTasks(mergedTasks);
+            } else {
+                // Document does not exist: use initial state and create the doc
+                setTasks(initialTasksState);
+                setDoc(docRef, initialTasksState, { merge: true }).catch(err => {
+                    console.error("Error creating doc:", err);
+                    setFirebaseError(`Could not create initial document: ${err.message}`);
+                });
+            }
+            setLoading(false); // Crucial: Stop loading once data is retrieved or initialized
+        }, (error) => {
+            console.error("Error listening to tasks:", error);
+            setFirebaseError(`Real-time listener failed: ${error.message}`);
+            setLoading(false);
+        });
+
+        // Cleanup function to stop listening when the component unmounts
+        return () => unsubscribe();
+    }
+  }, [db, userId, isAuthReady, initialTasksState]);
+
+
+  // --- FIRESTORE WRITE OPERATIONS ---
+
+  const updateDatabase = useCallback(async (newTasksState) => {
+    // Prevent DB writes if in local mode or not ready
+    if (!db || !userId || userId === 'local-user' || !isAuthReady) {
+      console.warn("Database not ready or local mode. State updated locally.");
+      setTasks(newTasksState);
+      return;
+    }
+
+    setSaving(true);
+    const docRef = doc(db, TASKS_DOC_PATH + userId, TASKS_DOC_ID);
+
+    try {
+      // Use setDoc to replace the entire map for simplicity and consistency
+      await setDoc(docRef, newTasksState);
+    } catch (error) {
+      console.error("Error updating tasks:", error);
+      setFirebaseError(`Failed to save task: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [db, userId, isAuthReady]);
+
+  // --- HANDLERS (Simplified for brevity, calling updateDatabase) ---
+
+  const handleAddTask = (e) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+
+    const newTask = {
+      id: generateId(),
+      text: newTaskText.trim(),
+      completed: false,
+    };
+
+    const newTasksState = {
+      ...tasks,
+      [currentDay]: [...(tasks[currentDay] || []), newTask],
+    };
+
+    updateDatabase(newTasksState);
+    setNewTaskText('');
+  };
+
+  const handleToggleCompletion = (taskId) => {
+    const dayTasks = tasks[currentDay];
+    if (!dayTasks) return;
+
+    const newDayTasks = dayTasks.map(task =>
+      task.id === taskId ? { ...task, completed: !task.completed } : task
+    );
+
+    const newTasksState = {
+      ...tasks,
+      [currentDay]: newDayTasks,
+    };
+
+    updateDatabase(newTasksState);
+  };
+
+  const handleDeleteTask = (taskId) => {
+    const dayTasks = tasks[currentDay];
+    if (!dayTasks) return;
+
+    const newDayTasks = dayTasks.filter(task => task.id !== taskId);
+
+    const newTasksState = {
+      ...tasks,
+      [currentDay]: newDayTasks,
+    };
+
+    updateDatabase(newTasksState);
+  };
+
+  // currentTasks relies on 'tasks' being initialized correctly, which it now is.
+  const currentTasks = useMemo(() => tasks[currentDay] || [], [tasks, currentDay]);
+
+  // --- UI COMPONENTS ---
+
+  const TaskItem = ({ task }) => (
+    <div
+      className="flex items-center justify-between p-3 mb-2 bg-white rounded-lg shadow transition duration-150 ease-in-out hover:shadow-md"
+      key={task.id}
+    >
+      <div className="flex items-center flex-1 min-w-0">
+        <button
+          onClick={() => handleToggleCompletion(task.id)}
+          className={`mr-3 p-1 rounded-full transition-colors ${task.completed ? 'text-green-500 hover:text-green-600' : 'text-gray-400 hover:text-indigo-500'}`}
+        >
+          {task.completed ? <CheckCircle size={20} fill="currentColor" /> : <Circle size={20} />}
+        </button>
+        <span className={`text-gray-800 break-words ${task.completed ? 'line-through text-gray-500 italic' : 'font-medium'}`}>
+          {task.text}
+        </span>
+      </div>
+      <button
+        onClick={() => handleDeleteTask(task.id)}
+        className="ml-3 p-1 text-red-400 hover:text-red-600 rounded-full transition-colors"
+        aria-label={`Delete task: ${task.text}`}
+      >
+        <Trash2 size={18} />
+      </button>
+    </div>
+  );
+
+  const DayButton = ({ day }) => (
+    <button
+      onClick={() => setCurrentDay(day)}
+      className={`px-4 py-2 text-sm font-semibold rounded-full transition-all duration-200 whitespace-nowrap
+        ${day === currentDay
+          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/50'
+          : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+        }`}
+    >
+      {day.substring(0, 3)}
+    </button>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 font-inter flex flex-col items-center">
+      <div className="w-full max-w-xl">
+        {/* Header */}
+        <header className="mb-6 pt-4">
+          <h1 className="text-4xl font-extrabold text-indigo-700 flex items-center mb-1">
+            <Calendar className="mr-3 h-8 w-8" />
+            Weekly Planner
+          </h1>
+          <p className="text-gray-600 ml-1">Organize your week, one task at a time.</p>
+          <div className="mt-4 text-xs text-gray-500 flex items-center bg-gray-100 p-2 rounded-lg">
+            <User size={14} className="mr-2 text-indigo-500"/>
+            <span className="font-mono truncate" title={`User ID: ${userId}`}>
+              User ID: {userId || 'Loading...'}
+            </span>
+            {saving && (
+                <span className="ml-auto flex items-center text-indigo-600 font-semibold">
+                    <Loader className="h-4 w-4 animate-spin mr-1" /> Saving...
+                </span>
+            )}
+          </div>
+        </header>
+        
+        {/* Error Display */}
+        {firebaseError && (
+            <div className="p-4 mb-6 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-start shadow-md">
+                <AlertTriangle size={20} className="mt-0.5 mr-3 flex-shrink-0" />
+                <div>
+                    <strong className="font-bold">Database Error:</strong>
+                    <p className="text-sm mt-1">{firebaseError}</p>
+                    <p className="text-xs italic mt-1">Data persistence may be affected.</p>
+                </div>
+                <button 
+                    onClick={() => setFirebaseError(null)}
+                    className="ml-auto text-red-500 hover:text-red-800 p-1"
+                    aria-label="Dismiss error"
+                >
+                    <X size={16} />
+                </button>
             </div>
-            <h1 class="text-4xl font-extrabold text-center text-gray-100 mb-4">Ignite Your Focus with Fire Clock</h1>
-            <p class="text-gray-400 text-center text-sm mb-6">
-                The Pomodoro Technique is a time management method that uses a timer to break down work into intervals, typically 25 minutes in length, separated by short breaks.
-            </p>
-            <div class="flex flex-col items-center space-y-4 text-gray-300 mb-6">
-                <p class="text-xl font-semibold">How it works:</p>
-                <ul class="list-disc list-inside space-y-2 text-left w-full max-w-xs mx-auto">
-                    <li><span class="font-bold text-red-400">Work</span> for 25 minutes.</li>
-                    <li><span class="font-bold text-blue-400">Break</span> for 5 minutes.</li>
-                    <li>After four sessions, take a <span class="font-bold text-green-400">longer break</span>.</li>
-                </ul>
-            </div>
-            <button id="start-timer-btn"
-                class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                Begin
+        )}
+
+
+        {/* Day Navigation */}
+        <div className="mb-6 overflow-x-auto">
+          <div className="flex space-x-2 pb-2">
+            {WEEKDAYS.map(day => <DayButton key={day} day={day} />)}
+          </div>
+        </div>
+
+        {/* Task Input Form */}
+        <form onSubmit={handleAddTask} className="mb-8 bg-white p-4 rounded-xl shadow-lg border border-indigo-100">
+          <h2 className="text-xl font-bold text-indigo-700 mb-3">{currentDay} Tasks</h2>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newTaskText}
+              onChange={(e) => setNewTaskText(e.target.value)}
+              placeholder={`Add a new task for ${currentDay}...`}
+              className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-gray-700"
+              disabled={loading || !isAuthReady || saving}
+            />
+            <button
+              type="submit"
+              className="bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 transition-colors shadow-md disabled:opacity-50"
+              disabled={loading || !isAuthReady || !newTaskText.trim() || saving}
+              aria-label="Add Task"
+            >
+              <Plus size={24} />
             </button>
+          </div>
+        </form>
+
+        {/* Task List */}
+        <div className="pb-10">
+          {loading ? (
+            <div className="flex justify-center items-center py-12 text-indigo-500">
+              <Loader className="w-8 h-8 animate-spin mr-3" />
+              <p className="text-lg font-medium">Loading tasks...</p>
+            </div>
+          ) : currentTasks.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-xl shadow-md border border-gray-200">
+              <Calendar size={48} className="mx-auto text-indigo-300 mb-3" />
+              <p className="text-gray-500 font-medium">No tasks planned for {currentDay}. Get started!</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {currentTasks.map(task => <TaskItem key={task.id} task={task} />)}
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+};
 
-        <!-- Timer App Page -->
-        <div id="timer-page" class="hidden flex-1 flex flex-col items-center justify-center space-y-6">
-            <h1 class="text-5xl tracking-widest font-bold text-center text-gray-100 mb-6 font-['Michroma']">🔥 Fire Timer 🔥</h1>
-            
-            <div class="max-w-md w-full flex flex-col space-y-6">
-                <!-- Main Timer and Controls Box -->
-                <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
-                    <div class="text-center">
-                        <p id="status-message" class="text-xl text-gray-400 font-medium">Set your times to begin!</p>
-                        <div id="timer-display" class="text-8xl sm:text-9xl font-bold font-extrabold text-white select-none mt-2">
-                            00:00
-                        </div>
-                    </div>
-                    
-                    <div id="controls" class="flex space-x-4 justify-center">
-                        <button id="start-pause-btn"
-                            class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105" disabled>
-                            Start
-                        </button>
-                        <button id="reset-btn"
-                            class="bg-red-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Reset
-                        </button>
-                    </div>
-                    <div id="running-controls" class="flex space-x-4 justify-center hidden">
-                        <button id="pause-btn"
-                            class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Pause
-                        </button>
-                        <button id="reset-btn-running"
-                            class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Reset
-                        </button>
-                    </div>
+export default App;
 
-                    <div id="progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
-                        <div id="progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
-                    </div>
-                </div>
-
-                <!-- Custom Time Setter Box -->
-                <div class="bg-gray-800 rounded-2xl p-6 space-y-4">
-                    <h2 class="text-xl font-bold text-center text-gray-100">Set Custom Pomodoro Time</h2>
-                    
-                    <div class="flex items-center space-x-2">
-                        <label for="pomo-time-input" class="text-gray-300 w-1/2"> Timer (min):</label>
-                        <input id="pomo-time-input" type="number" value="25" min="1"
-                            class="w-1/2 p-2 rounded-lg bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                    </div>
-                    
-                    <button id="set-times-btn"
-                        class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                        Set Time
-                    </button>
-                </div>
-
-                <button id="take-break-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    Take a Break
-                </button>
-
-
-                <button id="view-achievements-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    View Achievements
-                </button>
-            </div>
-            
-            <div class="text-center text-xs text-gray-500 mt-4 break-words">
-                <span id="user-id-display">Authenticating...</span>
-            </div>
-        </div>
-
-        <!-- New Break Page -->
-        <div id="break-page" class="hidden flex flex-col items-center justify-center min-h-screen">
-            <div class="max-w-md w-full p-4 text-center">
-                <h1 class="text-3xl font-bold text-gray-100 mb-6">Take a Break</h1>
-                <p class="text-white-400 text-sm mb-6">
-                    Choose the type of break you'd like to take.
-                </p>
-                <div class="bg-gray-800 rounded-2xl p-6 space-y-4 flex flex-col items-center justify-center">
-                    <!-- Timer Display -->
-                    <div id="break-timer-display" class="text-6xl sm:text-7xl font-bold text-white select-none">
-                        00:00
-                    </div>
-
-                    <!-- Status Message -->
-                    <p id="break-status-message" class="text-xl text-gray-400 font-medium">Choose a break to begin!</p>
-                    
-                    <div id="break-controls" class="flex space-x-4 justify-center">
-                        <button id="short-break-btn"
-                            class="w-1/2 bg-yellow-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Short Break
-                        </button>
-                        <button id="long-break-btn"
-                            class="w-1/2 bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-4 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Long Break
-                        </button>
-                    </div>
-                    <div id="break-running-controls" class="flex space-x-4 justify-center hidden">
-                        <button id="break-pause-btn"
-                            class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Pause
-                        </button>
-                        <button id="break-reset-btn"
-                            class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                            Reset
-                        </button>
-                    </div>
-
-
-                    <div id="break-progress-container" class="w-full bg-gray-600 rounded-full h-4 hidden mt-4">
-                        <div id="break-progress-bar" class="h-4 rounded-full transition-all duration-100 ease-linear bg-gradient-to-r from-yellow-400 to-red-500" style="width: 0%;"></div>
-                    </div>
-                </div>
-                
-                <button id="back-from-break-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 mt-6 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                    Back to Timer
-                </button>
-            </div>
-        </div>
-
-
-        <!-- Achievements Page -->
-        <div id="achievements-page" class="hidden">
-            <div class="text-center mb-6">
-                <h1 class="text-3xl font-bold text-gray-100">Your Progress</h1>
-                <p class="text-gray-400">Unlock achievements by staying focused.</p>
-            </div>
-            
-            <div id="achievements-container" class="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-            </div>
-
-            <div class="mt-6 pt-6 border-t border-gray-700">
-                <h2 class="text-xl font-semibold text-center text-gray-300 mb-4">Statistics</h2>
-                <div class="grid grid-cols-2 gap-4 text-center">
-                    
-                    <div class="bg-gray-800 p-4 rounded-xl">
-                        <div id="streak-stat" class="flex items-center justify-center space-x-2 text-gray-500">
-                            <span id="streak" class="text-5xl font-extrabold">0</span>
-                            <span id="streak-icon" class="duolingo-fire-icon text-5xl">🔥</span>
-                        </div>
-                        <span class="text-gray-400 text-sm mt-1">Day Streak</span>
-                    </div>
-
-                    <div class="bg-gray-800 p-4 rounded-xl">
-                        <div class="text-purple-400">
-                            <span id="total-sessions" class="text-5xl font-extrabold">0</span>
-                        </div>
-                        <span class="text-gray-400 text-sm mt-1">Total Sessions</span>
-                    </div>
-                </div>
-            </div>
-
-            <button id="back-to-timer-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 mt-8 rounded-full shadow-lg transition-transform transform hover:scale-105">
-                Back to Timer
-            </button>
-        </div>
-    </main>
-</body>
-
-</html>
